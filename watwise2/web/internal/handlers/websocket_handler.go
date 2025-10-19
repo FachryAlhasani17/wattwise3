@@ -11,12 +11,12 @@ import (
 )
 
 type WebSocketHandler struct {
-	db            *database.IoTDB
-	clients       map[*websocket.Conn]bool
-	clientsMutex  sync.RWMutex
-	broadcast     chan interface{}
-	register      chan *websocket.Conn
-	unregister    chan *websocket.Conn
+	db           *database.IoTDB
+	clients      map[*websocket.Conn]bool
+	clientsMutex sync.RWMutex
+	broadcast    chan interface{}
+	register     chan *websocket.Conn
+	unregister   chan *websocket.Conn
 }
 
 func NewWebSocketHandler(db *database.IoTDB) *WebSocketHandler {
@@ -27,10 +27,10 @@ func NewWebSocketHandler(db *database.IoTDB) *WebSocketHandler {
 		register:   make(chan *websocket.Conn),
 		unregister: make(chan *websocket.Conn),
 	}
-	
+
 	// Start hub untuk manage connections dan broadcasting
 	go handler.runHub()
-	
+
 	return handler
 }
 
@@ -38,7 +38,7 @@ func NewWebSocketHandler(db *database.IoTDB) *WebSocketHandler {
 func (h *WebSocketHandler) runHub() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case conn := <-h.register:
@@ -46,7 +46,7 @@ func (h *WebSocketHandler) runHub() {
 			h.clients[conn] = true
 			h.clientsMutex.Unlock()
 			log.Printf("🔌 Client registered. Total clients: %d", len(h.clients))
-			
+
 		case conn := <-h.unregister:
 			h.clientsMutex.Lock()
 			if _, ok := h.clients[conn]; ok {
@@ -55,7 +55,7 @@ func (h *WebSocketHandler) runHub() {
 			}
 			h.clientsMutex.Unlock()
 			log.Printf("🔌 Client unregistered. Total clients: %d", len(h.clients))
-			
+
 		case message := <-h.broadcast:
 			h.clientsMutex.RLock()
 			clientCount := len(h.clients)
@@ -69,17 +69,17 @@ func (h *WebSocketHandler) runHub() {
 				}
 			}
 			h.clientsMutex.RUnlock()
-			
+
 			if clientCount > 0 {
 				log.Printf("✅ Broadcasted to %d client(s)", clientCount)
 			}
-			
+
 		case <-ticker.C:
 			// Periodic status log (tidak fetch data lagi)
 			h.clientsMutex.RLock()
 			clientCount := len(h.clients)
 			h.clientsMutex.RUnlock()
-			
+
 			if clientCount > 0 {
 				log.Printf("📊 Active WebSocket clients: %d", clientCount)
 			}
@@ -92,12 +92,12 @@ func (h *WebSocketHandler) BroadcastRealtimeData(data models.RealtimeData) {
 	h.clientsMutex.RLock()
 	clientCount := len(h.clients)
 	h.clientsMutex.RUnlock()
-	
+
 	if clientCount == 0 {
 		log.Printf("⚠️ No WebSocket clients connected, skipping broadcast")
 		return
 	}
-	
+
 	select {
 	case h.broadcast <- data:
 		log.Printf("📤 Broadcasting realtime data: %s to %d client(s)", data.DeviceID, clientCount)
@@ -111,11 +111,11 @@ func (h *WebSocketHandler) BroadcastAlert(alert models.AlertData) {
 	h.clientsMutex.RLock()
 	clientCount := len(h.clients)
 	h.clientsMutex.RUnlock()
-	
+
 	if clientCount == 0 {
 		return
 	}
-	
+
 	select {
 	case h.broadcast <- alert:
 		log.Printf("⚠️ Broadcasting alert: %s - %s to %d client(s)", alert.AlertType, alert.Message, clientCount)
@@ -144,13 +144,13 @@ func (h *WebSocketHandler) HandleConnection(c *websocket.Conn) {
 		"server":  "Wattwise Energy Monitor",
 		"time":    time.Now().Format(time.RFC3339),
 	}
-	
+
 	err := c.WriteJSON(welcomeMsg)
 	if err != nil {
 		log.Printf("❌ Failed to send welcome message: %v", err)
 		return
 	}
-	
+
 	log.Printf("✅ Welcome message sent to %s", clientID)
 
 	// Listen for messages from client (optional - untuk control)

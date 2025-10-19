@@ -4,7 +4,7 @@ import "time"
 
 // EnergyData digunakan untuk data yang disimpan di IoTDB
 type EnergyData struct {
-	Timestamp   int64   `json:"timestamp"`  // Unix Millisecond
+	Timestamp   int64   `json:"timestamp"` // Unix Millisecond
 	Voltage     float64 `json:"voltage"`
 	Current     float64 `json:"current"`
 	Power       float64 `json:"power"`
@@ -27,15 +27,20 @@ type EnergyReading struct {
 }
 
 // MQTTMessage represents incoming MQTT message from ESP32
+// ✅ FIXED: Handle both string dan int64 timestamp
 type MQTTMessage struct {
-	DeviceID    string  `json:"device_id"`
-	Voltage     float64 `json:"voltage"`
-	Current     float64 `json:"current"`
-	Power       float64 `json:"power"`
-	Energy      float64 `json:"energy"`
-	Frequency   float64 `json:"frequency"`
-	PowerFactor float64 `json:"pf"`
-	Timestamp   int64   `json:"timestamp"` // Unix timestamp in seconds
+	DeviceID string `json:"device_id"`
+	// Timestamp bisa berupa string format "2025-10-20 00:55:31" atau int64
+	TimestampStr string  `json:"timestamp,omitempty"` // Jika string
+	Timestamp    int64   `json:"timestamp,omitempty"` // Jika int64
+	Voltage      float64 `json:"voltage"`
+	Current      float64 `json:"current"`
+	Power        float64 `json:"power"`
+	Energy       float64 `json:"energy"`
+	Frequency    float64 `json:"frequency"`
+	PowerFactor  float64 `json:"pf"` // ✅ FIXED: Match dengan MQTT payload "pf"
+	Rssi         int     `json:"rssi,omitempty"`
+	Uptime       int     `json:"uptime,omitempty"`
 }
 
 // RealtimeData for WebSocket broadcasting
@@ -83,17 +88,17 @@ type AlertData struct {
 
 // FilteredEnergyData untuk response data yang sudah diagregasi
 type FilteredEnergyData struct {
-	TimeGroup   string  `json:"time_group"`   // Bisa berupa date, hour, week, dll
-	Date        string  `json:"date"`         // Alias untuk daily view
-	Hour        string  `json:"hour"`         // Untuk hourly view
-	Week        string  `json:"week"`         // Untuk weekly view
-	TotalKWh    float64 `json:"total_kwh"`    // Total energy dalam kWh
-	AvgPower    float64 `json:"avg_power"`    // Average power
-	MaxPower    float64 `json:"max_power"`    // Maximum power
-	MinPower    float64 `json:"min_power"`    // Minimum power
-	AvgVoltage  float64 `json:"avg_voltage"`  // Average voltage
-	AvgCurrent  float64 `json:"avg_current"`  // Average current
-	DataCount   int     `json:"data_count"`   // Jumlah data points
+	TimeGroup  string  `json:"time_group"`  // Bisa berupa date, hour, week, dll
+	Date       string  `json:"date"`        // Alias untuk daily view
+	Hour       string  `json:"hour"`        // Untuk hourly view
+	Week       string  `json:"week"`        // Untuk weekly view
+	TotalKWh   float64 `json:"total_kwh"`   // Total energy dalam kWh
+	AvgPower   float64 `json:"avg_power"`   // Average power
+	MaxPower   float64 `json:"max_power"`   // Maximum power
+	MinPower   float64 `json:"min_power"`   // Minimum power
+	AvgVoltage float64 `json:"avg_voltage"` // Average voltage
+	AvgCurrent float64 `json:"avg_current"` // Average current
+	DataCount  int     `json:"data_count"`  // Jumlah data points
 }
 
 // FilteredResponse untuk API response

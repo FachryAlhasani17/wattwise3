@@ -1,0 +1,95 @@
+2025/10/19 19:13:27 main.go:26: ╔═══════════════════════════════════════╗
+2025/10/19 19:13:27 main.go:27: ║     🚀 Wattwise Energy Monitor      ║
+2025/10/19 19:13:27 main.go:28: ║        v1.0 - IoTDB Enabled         ║
+2025/10/19 19:13:27 main.go:29: ╚═══════════════════════════════════════╝
+2025/10/19 19:13:27 main.go:32: 
+📋 Loading configuration...
+2025/10/19 19:13:27 main.go:34:    ✓ Server Port: 8080
+2025/10/19 19:13:27 main.go:35:    ✓ IoTDB: 127.0.0.1:6667
+2025/10/19 19:13:27 main.go:36:    ✓ MQTT Broker: tcp://192.168.1.100:1883
+2025/10/19 19:13:27 main.go:39: 
+🗄️  Initializing IoTDB...
+2025/10/19 19:13:27 iotdb.go:59: ⚠️ Error creating storage group (mungkin sudah ada): error code: 501, message: root.wattwise has already been created as database
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.voltage] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.current] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.power] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.energy] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.frequency] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:76: ⚠️ Info creating timeseries: error code: 503, message: Path [root.wattwise.power_factor] already exist (mungkin sudah ada)
+2025/10/19 19:13:27 iotdb.go:80: ✅ IoTDB schema initialized!
+2025/10/19 19:13:27 main.go:47: ✅ IoTDB connected successfully
+2025/10/19 19:13:27 main.go:49:    ✓ Schema initialization completed
+2025/10/19 19:13:27 main.go:54: 
+🔧 Initializing services...
+2025/10/19 19:13:27 main.go:56:    ✓ Energy Service initialized
+2025/10/19 19:13:27 main.go:59: 
+📡 Initializing MQTT...
+2025/10/19 19:13:27 main.go:69:    ✓ MQTT Broker: tcp://192.168.1.100:1883
+2025/10/19 19:13:27 main.go:96:    ⏳ Connecting to MQTT broker...
+2025/10/19 19:13:27 main.go:99: ✅ MQTT connected successfully
+2025/10/19 19:13:27 main.go:107: 
+🌐 Initializing WebSocket...
+2025/10/19 19:13:27 main.go:109:    ✓ WebSocket handler initialized
+2025/10/19 19:13:27 main.go:112: 
+📥 Initializing MQTT Subscriber...
+2025/10/19 19:13:27 subscriber.go:39: ✅ WebSocket broadcaster connected to MQTT subscriber
+2025/10/19 19:13:27 main.go:115:    ✓ Subscriber initialized
+2025/10/19 19:13:27 main.go:116:    ✓ WebSocket broadcaster connected
+2025/10/19 19:13:27 main.go:120: 
+🔔 Subscribing to MQTT topics...
+2025/10/19 19:13:27 main.go:80: ✅ MQTT: Connected to broker
+2025/10/19 19:13:27 subscriber.go:56: 🔔 Attempting to subscribe to topic: test
+2025/10/19 19:13:27 subscriber.go:64: ✅ Successfully subscribed to: test
+2025/10/19 19:13:27 subscriber.go:56: 🔔 Attempting to subscribe to topic: wattwise/energy/+
+2025/10/19 19:13:27 subscriber.go:64: ✅ Successfully subscribed to: wattwise/energy/+
+2025/10/19 19:13:27 main.go:134: ✅ Successfully subscribed to energy topics
+2025/10/19 19:13:27 main.go:159: 
+🔨 Initializing Fiber Framework...
+2025/10/19 19:13:27 main.go:177:    ✓ Middleware configured
+2025/10/19 19:13:27 main.go:180: 
+📂 Setting up static files...
+2025/10/19 19:13:27 main.go:191:    ✓ View path: /mnt/c/Users/fachry/Documents/wattwise/web/view
+2025/10/19 19:13:27 main.go:196:    ✓ API routes configured
+2025/10/19 19:13:27 main.go:202:    ✓ Static files configured
+2025/10/19 19:13:27 main.go:222:    ✓ Health check endpoint available at /health
+2025/10/19 19:13:27 main.go:225: 
+🛡️  Setting up graceful shutdown...
+2025/10/19 19:13:27 main.go:246: 
+═════════════════════════════════════════════
+2025/10/19 19:13:27 main.go:247: ✅ Server starting: http://localhost:8080
+2025/10/19 19:13:27 main.go:248: ═════════════════════════════════════════════
+2025/10/19 19:13:27 main.go:249: 
+📝 Available endpoints:
+2025/10/19 19:13:27 main.go:250:    • Web UI: http://localhost:8080/view/login.html
+2025/10/19 19:13:27 main.go:251:    • API Health: http://localhost:8080/health
+2025/10/19 19:13:27 main.go:252:    • WebSocket: ws://localhost:8080/ws
+2025/10/19 19:13:27 main.go:253:    • API Docs: http://localhost:8080/api/
+2025/10/19 19:13:27 main.go:254: 
+🔐 Default credentials:
+2025/10/19 19:13:27 main.go:255:    • Username: admin
+2025/10/19 19:13:27 main.go:256:    • Password: admin123
+2025/10/19 19:13:27 main.go:257: 
+📊 Status:
+2025/10/19 19:13:27 main.go:258:    • IoTDB: true
+2025/10/19 19:13:27 main.go:259:    • MQTT: true
+2025/10/19 19:13:27 main.go:260: 
+⏹️  Press Ctrl+C to stop the server
+
+
+ ┌───────────────────────────────────────────────────┐ 
+ │                   Wattwise v1.0                   │ 
+ │                   Fiber v2.52.0                   │ 
+ │               http://127.0.0.1:8080               │ 
+ │       (bound on host 0.0.0.0 and port 8080)       │ 
+ │                                                   │ 
+ │ Handlers ............ 40  Processes ........... 1 │ 
+ │ Prefork ....... Disabled  PID .............. 3560 │ 
+ └───────────────────────────────────────────────────┘ 
+
+2025/10/19 19:13:32 subscriber.go:76: 📨 Received MQTT message on topic: test
+2025/10/19 19:13:32 energy_service.go:62: 💾 Saving energy data for device: ESP32_PZEM
+2025/10/19 19:13:32 iotdb.go:188: ✅ Inserted to IoTDB: V=198.20V I=0.170A P=32.70W E=0.03000kWh T=1760876012096
+2025/10/19 19:13:32 subscriber.go:178: 📊 Device status updated: ESP32_PZEM -> online
+2025/10/19 19:13:32 subscriber.go:116: ⚠️ ALERT: voltage_abnormal - Voltage abnormal: 198.20V
+2025/10/19 19:13:32 websocket_handler.go:97: ⚠️ No WebSocket clients connected, skipping broadcast
+2025/10/19 19:13:32 subscriber.go:145: ✅ Successfully processed: ESP32_PZEM | 198.2V | 0.17A | 32.7W | 0.030kWh

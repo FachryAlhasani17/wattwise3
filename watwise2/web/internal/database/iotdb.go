@@ -52,25 +52,37 @@ func (db *IoTDB) IsEnabled() bool {
 	return db.enabled
 }
 
+// ✅ FIXED: initSchema - correct path from root.wattwise to root.energy
 func (db *IoTDB) initSchema() {
-    // 🔧 Ganti DATABASE -> STORAGE GROUP
-    _, err := (*db.session).ExecuteStatement("CREATE STORAGE GROUP root.energy")
+    log.Println("🔧 Initializing IoTDB schema...")
+    
+    // 1. Create storage group (database)
+    // ✅ FIXED: Use root.energy instead of root.wattwise
+    storageGroupCmd := "CREATE STORAGE GROUP root.energy"
+    log.Printf("   Executing: %s", storageGroupCmd)
+    _, err := (*db.session).ExecuteStatement(storageGroupCmd)
     if err != nil {
         log.Printf("⚠️ Error creating storage group: %v", err)
+        // This is expected if already created, continue anyway
     }
 
+    // 2. Create timeseries with correct path root.energy.*
     timeseries := []string{
-        "CREATE TIMESERIES root.energy.voltage WITH DATATYPE=FLOAT, ENCODING=RLE",
-        "CREATE TIMESERIES root.energy.current WITH DATATYPE=FLOAT, ENCODING=RLE",
-        "CREATE TIMESERIES root.energy.power WITH DATATYPE=FLOAT, ENCODING=RLE",
-        "CREATE TIMESERIES root.energy.energy WITH DATATYPE=FLOAT, ENCODING=RLE",
-        "CREATE TIMESERIES root.energy.prediction WITH DATATYPE=FLOAT, ENCODING=RLE",
+        "CREATE TIMESERIES root.energy.voltage WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.current WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.power WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.energy WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.frequency WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.power_factor WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.energy.prediction WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
     }
 
     for _, ts := range timeseries {
+        log.Printf("   Executing: %s", ts)
         _, err := (*db.session).ExecuteStatement(ts)
         if err != nil {
-            log.Printf("⚠️ Error creating timeseries %s: %v", ts, err)
+            log.Printf("⚠️ Info creating timeseries: %v (mungkin sudah ada)", err)
+            // This is expected if already created, continue anyway
         }
     }
 
@@ -84,11 +96,14 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 	}
 
 	// Query mengambil time dan semua pengukuran (voltage, current, power, energy, prediction)
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, prediction FROM root.energy ORDER BY time DESC LIMIT %d", limit)
+	// ✅ FIXED: Use correct path root.energy.*
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.energy ORDER BY time DESC LIMIT %d", limit)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
-		return nil, err
+        log.Printf("⚠️ Query error: %v", err)
+        log.Printf("   Query was: %s", query)
+        return nil, err
 	}
 	defer sessionDataSet.Close()
 
@@ -97,8 +112,7 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 	for {
 		hasNext, err := sessionDataSet.Next()
 		if err != nil {
-            // Log error saat iterasi data
-            log.Printf("Error during dataset iteration: %v", err)
+            log.Printf("❌ Error during dataset iteration: %v", err)
             break 
         }
         if !hasNext {
@@ -107,20 +121,18 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		
 		ts := sessionDataSet.GetTimestamp()
 
-		// ⭐ PERBAIKAN KRUSIAL DI SINI: Menggunakan nama pengukuran sederhana
 		data := models.EnergyData{
-			Timestamp:  ts, 
-			Voltage: 	float64(sessionDataSet.GetFloat("voltage")), // Menggunakan "voltage" saja
-			Current: 	float64(sessionDataSet.GetFloat("current")),
-			Power: 		float64(sessionDataSet.GetFloat("power")),
-			Energy: 	float64(sessionDataSet.GetFloat("energy")),
-			Prediction: float64(sessionDataSet.GetFloat("prediction")),
+			Timestamp:   ts,
+			Voltage:    	float64(sessionDataSet.GetFloat("voltage")),
+			Current:    	float64(sessionDataSet.GetFloat("current")),
+			Power:      	float64(sessionDataSet.GetFloat("power")),
+			Energy:     	float64(sessionDataSet.GetFloat("energy")),
+			Frequency:     	float64(sessionDataSet.GetFloat("frequency")),
+			PowerFactor:   	float64(sessionDataSet.GetFloat("power_factor")),
 		}
 
 		dataList = append(dataList, data)
 	}
-
-	// Setelah perbaikan ini, log Go akan menampilkan error jika ada masalah saat membaca data float.
 
 	return dataList, nil
 }
@@ -136,26 +148,26 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
         timestamp = time.Now().UnixMilli()
     }
 
-    measurements := []string{"voltage", "current", "power", "energy", "prediction"}
+    measurements := []string{"voltage", "current", "power", "energy", "frequency", "power_factor"}
     values := []interface{}{
         float32(data.Voltage),
         float32(data.Current),
         float32(data.Power),
         float32(data.Energy),
-        float32(data.Prediction),
+        float32(data.Frequency),
+        float32(data.PowerFactor),
     }
     dataTypes := []client.TSDataType{
-        client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT,
+        client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT,
     }
 
-    // ✅ Tangkap dua return value (status, err)
+    // ✅ FIXED: Use correct path root.energy
     status, err := (*db.session).InsertRecord("root.energy", measurements, dataTypes, values, timestamp)
     if err != nil {
         log.Printf("❌ Failed to insert data to IoTDB: %v", err)
         return err
     }
 
-    // Kalau status != success
     if status != nil && status.GetCode() != 200 {
         log.Printf("⚠️ IoTDB insert returned non-OK status: %v", status)
     } else {
@@ -178,13 +190,13 @@ func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
 		prediction := energy + 1.5 + float64(i%2)*0.5
 
 		data := models.EnergyData{
-			// Mengembalikan UnixMilli int64.
 			Timestamp: 	now.Add(-time.Duration(i) * time.Minute).UnixMilli(), 
 			Voltage: 	voltage,
 			Current: 	current,
 			Power: 		power,
 			Energy: 	energy,
-			Prediction: prediction,
+			Frequency:	50.0,
+			PowerFactor: 0.95,
 		}
 		dataList = append(dataList, data)
 	}
@@ -192,18 +204,15 @@ func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
 	return dataList
 }
 
-// Add this method to your IoTDB struct in internal/database/iotdb.go
-
 // GetDataByTimeRange query data dengan time range filter di database level
-// Lebih efficient daripada GetLatestData() dengan filtering di application
 func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyData, error) {
 	if !db.enabled {
 		log.Println("⚠️ IoTDB disabled, returning dummy data.")
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	// Query dengan WHERE clause untuk time range
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, prediction FROM root.energy WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
+	// ✅ FIXED: Use correct path root.energy.*
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.energy WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
 
 	log.Printf("Executing query: %s", query)
 
@@ -229,12 +238,13 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		ts := sessionDataSet.GetTimestamp()
 
 		data := models.EnergyData{
-			Timestamp:  ts,
-			Voltage:    float64(sessionDataSet.GetFloat("voltage")),
-			Current:    float64(sessionDataSet.GetFloat("current")),
-			Power:      float64(sessionDataSet.GetFloat("power")),
-			Energy:     float64(sessionDataSet.GetFloat("energy")),
-			Prediction: float64(sessionDataSet.GetFloat("prediction")),
+			Timestamp:   ts,
+			Voltage:    	float64(sessionDataSet.GetFloat("voltage")),
+			Current:    	float64(sessionDataSet.GetFloat("current")),
+			Power:      	float64(sessionDataSet.GetFloat("power")),
+			Energy:     	float64(sessionDataSet.GetFloat("energy")),
+			Frequency:     	float64(sessionDataSet.GetFloat("frequency")),
+			PowerFactor:   	float64(sessionDataSet.GetFloat("power_factor")),
 		}
 
 		dataList = append(dataList, data)
@@ -265,7 +275,7 @@ func (db *IoTDB) getDummyDataByTimeRange(startTime, endTime int64) []models.Ener
 		voltage := 220.0 + (float64(hour%4) * 0.5)
 		current := basePower / voltage
 		power := voltage * current
-		energy := 0.04 + (float64(hour) * 0.02) // kWh accumulation
+		energy := 0.04 + (float64(hour) * 0.02)
 
 		data := models.EnergyData{
 			Timestamp:  ts.UnixMilli(),
@@ -273,7 +283,8 @@ func (db *IoTDB) getDummyDataByTimeRange(startTime, endTime int64) []models.Ener
 			Current:    current,
 			Power:      power,
 			Energy:     energy,
-			Prediction: energy + 0.1,
+			Frequency:	50.0,
+			PowerFactor: 0.95,
 		}
 		dataList = append(dataList, data)
 	}

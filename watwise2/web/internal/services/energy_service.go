@@ -22,21 +22,21 @@ func NewEnergyService(db *database.IoTDB) *EnergyService {
 
 // ===== AGGREGATION STRUCTURES =====
 type DailyAggregation struct {
-	Date      string  `json:"date"`
-	TotalKWh  float64 `json:"total_kwh"`
-	AvgPower  float64 `json:"avg_power"`
-	MaxPower  float64 `json:"max_power"`
-	MinPower  float64 `json:"min_power"`
-	Count     int     `json:"count"`
+	Date     string  `json:"date"`
+	TotalKWh float64 `json:"total_kwh"`
+	AvgPower float64 `json:"avg_power"`
+	MaxPower float64 `json:"max_power"`
+	MinPower float64 `json:"min_power"`
+	Count    int     `json:"count"`
 }
 
 type HourlyAggregation struct {
-	Hour      string  `json:"hour"`
-	TotalKWh  float64 `json:"total_kwh"`
-	AvgPower  float64 `json:"avg_power"`
-	MaxPower  float64 `json:"max_power"`
-	MinPower  float64 `json:"min_power"`
-	Count     int     `json:"count"`
+	Hour     string  `json:"hour"`
+	TotalKWh float64 `json:"total_kwh"`
+	AvgPower float64 `json:"avg_power"`
+	MaxPower float64 `json:"max_power"`
+	MinPower float64 `json:"min_power"`
+	Count    int     `json:"count"`
 }
 
 type WeeklyAggregation struct {
@@ -55,52 +55,148 @@ type MonthlyAggregation struct {
 	Daily    []DailyAggregation `json:"daily_breakdown"`
 }
 
-// ===== ORIGINAL FUNCTIONS (MAINTAINED) =====
+// ===== FUNCTIONS =====
 
-// SaveEnergyData menyimpan data energi ke IoTDB
+// ✅ FIX: SaveEnergyData - ACTUALLY save ke IoTDB (bukan hanya TODO)
 func (s *EnergyService) SaveEnergyData(deviceID string, data *models.EnergyData) error {
-	log.Printf("✅ Saving energy data for device: %s (Power: %.2fW)", deviceID, data.Power)
-	
-	// TODO: Implement actual save to IoTDB
-	// Contoh: return s.db.InsertData(*data)
-	
+	log.Printf("💾 SaveEnergyData called for device: %s", deviceID)
+	log.Printf("   Data: V=%.2f | I=%.3f | P=%.2f | E=%.4f | F=%.1f | PF=%.3f",
+		data.Voltage, data.Current, data.Power, data.Energy, data.Frequency, data.PowerFactor)
+
+	// Validasi data
+	if data.Voltage <= 0 {
+		log.Printf("❌ Invalid voltage: %.2f (must be > 0)", data.Voltage)
+		return fmt.Errorf("invalid voltage value")
+	}
+
+	if data.Timestamp == 0 {
+		data.Timestamp = time.Now().UnixMilli()
+		log.Printf("⚠️ Timestamp is 0, setting to current time: %d", data.Timestamp)
+	}
+
+	// ✅ ACTUALLY insert ke IoTDB
+	if err := s.db.InsertData(*data); err != nil {
+		log.Printf("❌ Failed to insert data to IoTDB: %v", err)
+		return fmt.Errorf("failed to save to IoTDB: %w", err)
+	}
+
+	log.Printf("✅ Data successfully saved to IoTDB (timestamp: %d)", data.Timestamp)
 	return nil
 }
 
 // GetLatestData mendapatkan data terbaru dari device
 func (s *EnergyService) GetLatestData(deviceID string) (*models.EnergyReading, error) {
 	log.Printf("Getting latest data for device: %s", deviceID)
-	
-	// TODO: Query dari IoTDB
-	// Sementara return dummy data
+
+	// Query latest data
+	readings, err := s.db.GetLatestData(1)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(readings) == 0 {
+		return nil, fmt.Errorf("no data found for device: %s", deviceID)
+	}
+
+	latest := readings[0]
 	return &models.EnergyReading{
 		DeviceID:    deviceID,
-		Voltage:     220.0,
-		Current:     1.5,
-		Power:       330.0,
-		Energy:      1.2,
-		Frequency:   50.0,
-		PowerFactor: 0.95,
-		Timestamp:   time.Now(),
+		Voltage:     latest.Voltage,
+		Current:     latest.Current,
+		Power:       latest.Power,
+		Energy:      latest.Energy,
+		Frequency:   latest.Frequency,
+		PowerFactor: latest.PowerFactor,
+		Timestamp:   time.UnixMilli(latest.Timestamp),
 	}, nil
 }
 
 // GetHistoricalData mendapatkan data historis dengan range waktu
 func (s *EnergyService) GetHistoricalData(deviceID string, startTime, endTime int64, limit int) ([]models.EnergyReading, error) {
-	log.Printf("Getting historical data for device: %s", deviceID)
-	return []models.EnergyReading{}, nil
+	log.Printf("Getting historical data for device: %s (range: %d to %d)", deviceID, startTime, endTime)
+
+	readings, err := s.db.GetDataByTimeRange(startTime, endTime)
+	if err != nil {
+		log.Printf("❌ Error querying historical data: %v", err)
+		return nil, err
+	}
+
+	// Convert to EnergyReading format
+	var result []models.EnergyReading
+	for _, r := range readings {
+		result = append(result, models.EnergyReading{
+			DeviceID:    deviceID,
+			Voltage:     r.Voltage,
+			Current:     r.Current,
+			Power:       r.Power,
+			Energy:      r.Energy,
+			Frequency:   r.Frequency,
+			PowerFactor: r.PowerFactor,
+			Timestamp:   time.UnixMilli(r.Timestamp),
+		})
+	}
+
+	log.Printf("✅ Retrieved %d records from historical data", len(result))
+	return result, nil
 }
 
 // CalculateDailySummary menghitung summary harian
 func (s *EnergyService) CalculateDailySummary(deviceID string, date time.Time) (*models.DailySummary, error) {
+	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	readings, err := s.GetHistoricalData(deviceID, startOfDay.UnixMilli(), endOfDay.UnixMilli(), 10000)
+	if err != nil {
+		log.Printf("⚠️ Error calculating daily summary: %v", err)
+		// Return empty summary instead of error
+		return &models.DailySummary{
+			DeviceID:    deviceID,
+			Date:        date.Format("2006-01-02"),
+			TotalEnergy: 0,
+			AvgPower:    0,
+			MaxPower:    0,
+			MinPower:    0,
+			TotalCost:   0,
+		}, nil
+	}
+
+	if len(readings) == 0 {
+		return &models.DailySummary{
+			DeviceID:    deviceID,
+			Date:        date.Format("2006-01-02"),
+			TotalEnergy: 0,
+			AvgPower:    0,
+			MaxPower:    0,
+			MinPower:    0,
+			TotalCost:   0,
+		}, nil
+	}
+
+	var totalEnergy, totalPower float64
+	maxPower := readings[0].Power
+	minPower := readings[0].Power
+
+	for _, r := range readings {
+		totalEnergy += r.Energy
+		totalPower += r.Power
+		if r.Power > maxPower {
+			maxPower = r.Power
+		}
+		if r.Power < minPower {
+			minPower = r.Power
+		}
+	}
+
+	avgPower := totalPower / float64(len(readings))
+
 	return &models.DailySummary{
 		DeviceID:    deviceID,
 		Date:        date.Format("2006-01-02"),
-		TotalEnergy: 10.5,
-		AvgPower:    500.0,
-		MaxPower:    1200.0,
-		MinPower:    100.0,
-		TotalCost:   15162.0,
+		TotalEnergy: totalEnergy,
+		AvgPower:    avgPower,
+		MaxPower:    maxPower,
+		MinPower:    minPower,
+		TotalCost:   totalEnergy * 1450.0, // Rp 1450 per kWh
 	}, nil
 }
 
@@ -112,7 +208,7 @@ func (s *EnergyService) CheckThresholdAlert(deviceID string, data *models.Energy
 		minVoltage = 200.0
 		maxVoltage = 240.0
 	)
-	
+
 	if data.Power > maxPower {
 		return &models.AlertData{
 			DeviceID:    deviceID,
@@ -123,7 +219,7 @@ func (s *EnergyService) CheckThresholdAlert(deviceID string, data *models.Energy
 			Timestamp:   data.Timestamp,
 		}
 	}
-	
+
 	if data.Current > maxCurrent {
 		return &models.AlertData{
 			DeviceID:    deviceID,
@@ -134,7 +230,7 @@ func (s *EnergyService) CheckThresholdAlert(deviceID string, data *models.Energy
 			Timestamp:   data.Timestamp,
 		}
 	}
-	
+
 	if data.Voltage < minVoltage || data.Voltage > maxVoltage {
 		return &models.AlertData{
 			DeviceID:    deviceID,
@@ -145,23 +241,34 @@ func (s *EnergyService) CheckThresholdAlert(deviceID string, data *models.Energy
 			Timestamp:   data.Timestamp,
 		}
 	}
-	
+
 	return nil
 }
 
 // GetDeviceList mendapatkan daftar device yang terdaftar
 func (s *EnergyService) GetDeviceList() ([]string, error) {
-	return []string{"ESP32_001"}, nil
+	return []string{"ESP32_PZEM"}, nil
 }
 
 // GetRealtimeStats mendapatkan statistik real-time semua device
 func (s *EnergyService) GetRealtimeStats() (map[string]interface{}, error) {
+	latest, err := s.GetLatestData("ESP32_PZEM")
+	if err != nil {
+		return map[string]interface{}{
+			"total_devices":  1,
+			"online_devices": 0,
+			"total_power":    0,
+			"total_energy":   0,
+			"estimated_cost": 0,
+		}, nil
+	}
+
 	return map[string]interface{}{
 		"total_devices":  1,
 		"online_devices": 1,
-		"total_power":    330.0,
-		"total_energy":   1.2,
-		"estimated_cost": 1732.8,
+		"total_power":    latest.Power,
+		"total_energy":   latest.Energy,
+		"estimated_cost": latest.Energy * 1450.0,
 	}, nil
 }
 

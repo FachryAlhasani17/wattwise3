@@ -57,7 +57,7 @@ func Load() *Config {
 			Password: getEnv("IOTDB_PASSWORD", "root"),
 		},
 		MQTT: MQTTConfig{
-			Broker:   getEnv("MQTT_BROKER", "tcp://127.0.0.1 :1883"),
+			Broker:   getEnv("MQTT_BROKER", "tcp://127.0.0.1:1883"),
 			Port:     getEnv("MQTT_PORT", "1883"),
 			ClientID: getEnv("MQTT_CLIENT_ID", "wattwise_server"),
 			Username: getEnv("MQTT_USERNAME", ""),
