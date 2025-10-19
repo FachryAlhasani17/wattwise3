@@ -1,0 +1,93 @@
+package models
+
+import "time"
+
+// EnergyData represents energy measurement data
+type EnergyData struct {
+	Timestamp   int64   `json:"timestamp"`
+	Voltage     float64 `json:"voltage"`
+	Current     float64 `json:"current"`
+	Power       float64 `json:"power"`
+	Energy      float64 `json:"energy"`
+	Frequency   float64 `json:"frequency"`
+	PowerFactor float64 `json:"power_factor"`
+	Prediction  float64 `json:"prediction,omitempty"`
+}
+
+// MQTTMessage represents incoming MQTT message from ESP32
+type MQTTMessage struct {
+	DeviceID    string  `json:"device_id"`
+	Timestamp   int64   `json:"timestamp"`
+	Voltage     float64 `json:"voltage"`
+	Current     float64 `json:"current"`
+	Power       float64 `json:"power"`
+	Energy      float64 `json:"energy"`
+	Frequency   float64 `json:"frequency"`
+	PowerFactor float64 `json:"power_factor"`
+}
+
+// RealtimeData represents real-time data for WebSocket broadcast
+type RealtimeData struct {
+	DeviceID    string  `json:"device_id"`
+	DeviceName  string  `json:"device_name"`
+	Timestamp   int64   `json:"timestamp"`
+	Voltage     float64 `json:"voltage"`
+	Current     float64 `json:"current"`
+	Power       float64 `json:"power"`
+	Energy      float64 `json:"energy"`
+	Frequency   float64 `json:"frequency"`
+	PowerFactor float64 `json:"power_factor"`
+	Status      string  `json:"status"`
+}
+
+// DeviceStatus represents device online/offline status
+type DeviceStatus struct {
+	DeviceID   string `json:"device_id"`
+	DeviceName string `json:"device_name"`
+	Status     string `json:"status"`
+	IsOnline   bool   `json:"is_online"`
+	LastSeen   int64  `json:"last_seen"`
+}
+
+// EnergyReading represents a single energy reading with metadata
+type EnergyReading struct {
+	DeviceID    string    `json:"device_id"`
+	Voltage     float64   `json:"voltage"`
+	Current     float64   `json:"current"`
+	Power       float64   `json:"power"`
+	Energy      float64   `json:"energy"`
+	Frequency   float64   `json:"frequency"`
+	PowerFactor float64   `json:"power_factor"`
+	Timestamp   time.Time `json:"timestamp"`
+}
+
+// DailySummary represents daily energy consumption summary
+type DailySummary struct {
+	DeviceID    string  `json:"device_id"`
+	Date        string  `json:"date"`
+	TotalEnergy float64 `json:"total_energy"`
+	AvgPower    float64 `json:"avg_power"`
+	MaxPower    float64 `json:"max_power"`
+	MinPower    float64 `json:"min_power"`
+	TotalCost   float64 `json:"total_cost"`
+}
+
+// AlertData represents alert when threshold exceeded
+type AlertData struct {
+	DeviceID    string  `json:"device_id"`
+	AlertType   string  `json:"alert_type"`
+	Message     string  `json:"message"`
+	Threshold   float64 `json:"threshold"`
+	ActualValue float64 `json:"actual_value"`
+	Timestamp   int64   `json:"timestamp"`
+}
+
+// User represents user account
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	Password  string    `json:"-"` // Never expose password in JSON
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

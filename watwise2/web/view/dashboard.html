@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wattwise - Real-time Energy Monitor</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <span class="icon">⚡</span>
+            <span>Wattwise</span>
+        </div>
+        <div class="navbar-right">
+            <div class="connection-status">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+            <div class="user-info">
+                <span id="username">Admin</span>
+            </div>
+            <button class="btn-logout" onclick="logout()">
+                <span>🚪</span> Keluar
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Header Section -->
+        <div class="page-header">
+            <div class="header-content">
+                <h1>Real-time Energy Monitor</h1>
+                <p>Monitoring konsumsi energi listrik secara real-time dari perangkat IoT</p>
+            </div>
+            <div class="header-stats">
+                <div class="mini-stat">
+                    <span class="mini-stat-label">Device</span>
+                    <span class="mini-stat-value" id="deviceName">ESP32_PZEM</span>
+                </div>
+                <div class="mini-stat">
+                    <span class="mini-stat-label">Last Update</span>
+                    <span class="mini-stat-value" id="lastUpdate">-</span>
+                </div>
+                <div class="mini-stat">
+                    <span class="mini-stat-label">Total Data</span>
+                    <span class="mini-stat-value" id="totalData">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card voltage">
+                <div class="stat-header">
+                    <span class="stat-icon">⚡</span>
+                    <span class="stat-label">Tegangan</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="voltageValue">0.00</div>
+                    <div class="stat-unit">Volt</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="voltageTime">-</span>
+                </div>
+            </div>
+
+            <div class="stat-card current">
+                <div class="stat-header">
+                    <span class="stat-icon">⚙️</span>
+                    <span class="stat-label">Arus</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="currentValue">0.00</div>
+                    <div class="stat-unit">Ampere</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="currentTime">-</span>
+                </div>
+            </div>
+
+            <div class="stat-card power">
+                <div class="stat-header">
+                    <span class="stat-icon">🔋</span>
+                    <span class="stat-label">Daya</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="powerValue">0.00</div>
+                    <div class="stat-unit">Watt</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="powerTime">-</span>
+                </div>
+            </div>
+
+            <div class="stat-card energy">
+                <div class="stat-header">
+                    <span class="stat-icon">📊</span>
+                    <span class="stat-label">Energi</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="energyValue">0.000</div>
+                    <div class="stat-unit">kWh</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="energyTime">-</span>
+                </div>
+            </div>
+
+            <div class="stat-card frequency">
+                <div class="stat-header">
+                    <span class="stat-icon">📈</span>
+                    <span class="stat-label">Frekuensi</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="frequencyValue">0.0</div>
+                    <div class="stat-unit">Hz</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="frequencyTime">-</span>
+                </div>
+            </div>
+
+            <div class="stat-card pf">
+                <div class="stat-header">
+                    <span class="stat-icon">✓</span>
+                    <span class="stat-label">Power Factor</span>
+                </div>
+                <div class="stat-body">
+                    <div class="stat-value" id="pfValue">0.00</div>
+                    <div class="stat-unit">-</div>
+                </div>
+                <div class="stat-footer">
+                    <span class="stat-time" id="pfTime">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Console Section -->
+        <div class="console-section">
+            <div class="console-header">
+                <h2>📡 Real-time Console</h2>
+                <div class="console-controls">
+                    <button class="btn-console" onclick="toggleAutoScroll()" id="btnAutoScroll">
+                        📌 Auto-scroll: ON
+                    </button>
+                    <button class="btn-console" onclick="clearConsole()">
+                        🗑️ Clear
+                    </button>
+                    <button class="btn-console" onclick="exportConsoleData()">
+                        💾 Export
+                    </button>
+                </div>
+            </div>
+            <div class="console" id="console">
+                <div class="console-line info">🚀 Initializing Wattwise Real-time Monitor...</div>
+                <div class="console-line info">🔌 Connecting to WebSocket server...</div>
+            </div>
+        </div>
+
+        <!-- Data Table Section -->
+        <div class="table-section">
+            <div class="table-header">
+                <h2>📋 Recent Data History</h2>
+                <div class="table-info">
+                    <span>Showing last <strong id="historyCount">0</strong> records</span>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Voltage (V)</th>
+                            <th>Current (A)</th>
+                            <th>Power (W)</th>
+                            <th>Energy (kWh)</th>
+                            <th>Frequency (Hz)</th>
+                            <th>PF</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                        <tr>
+                            <td colspan="7" class="no-data">Waiting for data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/auth.js"></script>
+    <script src="/js/websocket.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>
