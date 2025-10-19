@@ -52,13 +52,13 @@ func (db *IoTDB) IsEnabled() bool {
 	return db.enabled
 }
 
-// ✅ FIXED: initSchema - correct path from root.wattwise to root.energy
+// ✅ FIXED: initSchema - use root.wattwise (sesuai dengan database yang sudah ada)
 func (db *IoTDB) initSchema() {
     log.Println("🔧 Initializing IoTDB schema...")
     
     // 1. Create storage group (database)
-    // ✅ FIXED: Use root.energy instead of root.wattwise
-    storageGroupCmd := "CREATE STORAGE GROUP root.energy"
+    // ✅ FIXED: Use root.wattwise (sesuai dengan database existing)
+    storageGroupCmd := "CREATE STORAGE GROUP root.wattwise"
     log.Printf("   Executing: %s", storageGroupCmd)
     _, err := (*db.session).ExecuteStatement(storageGroupCmd)
     if err != nil {
@@ -66,15 +66,15 @@ func (db *IoTDB) initSchema() {
         // This is expected if already created, continue anyway
     }
 
-    // 2. Create timeseries with correct path root.energy.*
+    // 2. Create timeseries with correct path root.wattwise.*
     timeseries := []string{
-        "CREATE TIMESERIES root.energy.voltage WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.current WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.power WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.energy WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.frequency WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.power_factor WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.energy.prediction WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.voltage WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.current WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.power WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.energy WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.frequency WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.power_factor WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.prediction WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
     }
 
     for _, ts := range timeseries {
@@ -95,9 +95,9 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		return db.getDummyData(limit), nil
 	}
 
-	// Query mengambil time dan semua pengukuran (voltage, current, power, energy, prediction)
-	// ✅ FIXED: Use correct path root.energy.*
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.energy ORDER BY time DESC LIMIT %d", limit)
+	// Query mengambil time dan semua pengukuran (voltage, current, power, energy)
+	// ✅ FIXED: Use correct path root.wattwise.*
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise ORDER BY time DESC LIMIT %d", limit)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
@@ -161,21 +161,64 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
         client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT,
     }
 
-    // ✅ FIXED: Use correct path root.energy
-    status, err := (*db.session).InsertRecord("root.energy", measurements, dataTypes, values, timestamp)
+    // ✅ FIXED: Use correct path root.wattwise
+    status, err := (*db.session).InsertRecord("root.wattwise", measurements, dataTypes, values, timestamp)
+    
+    // ✅ FIX: Auto-reconnect jika session error
     if err != nil {
-        log.Printf("❌ Failed to insert data to IoTDB: %v", err)
-        return err
+        errMsg := err.Error()
+        
+        // Cek jika error adalah session/statement expired
+        if contains(errMsg, "doesn't exist") || contains(errMsg, "session") || contains(errMsg, "statement") {
+            log.Printf("⚠️ IoTDB session error detected, attempting reconnect...")
+            
+            // Close old session
+            if db.session != nil {
+                (*db.session).Close()
+            }
+            
+            // Reconnect
+            if reconnectErr := db.Connect(); reconnectErr != nil {
+                log.Printf("❌ Failed to reconnect to IoTDB: %v", reconnectErr)
+                return fmt.Errorf("IoTDB reconnect failed: %w", reconnectErr)
+            }
+            
+            log.Println("✅ IoTDB reconnected successfully, retrying insert...")
+            
+            // Retry insert
+            status, err = (*db.session).InsertRecord("root.wattwise", measurements, dataTypes, values, timestamp)
+            if err != nil {
+                log.Printf("❌ Retry insert also failed: %v", err)
+                return err
+            }
+        } else {
+            log.Printf("❌ Failed to insert data to IoTDB: %v", err)
+            return err
+        }
     }
 
     if status != nil && status.GetCode() != 200 {
         log.Printf("⚠️ IoTDB insert returned non-OK status: %v", status)
     } else {
-        log.Printf("💾 Inserted to IoTDB: %.1fV %.2fA %.1fW %.3fkWh (t=%d)",
+        log.Printf("✅ Inserted to IoTDB: V=%.2fV I=%.3fA P=%.1fW E=%.5fkWh T=%d",
             data.Voltage, data.Current, data.Power, data.Energy, timestamp)
     }
 
     return nil
+}
+
+// Helper function to check if string contains substring
+func contains(s, substr string) bool {
+    return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
+}
+
+func containsMiddle(s, substr string) bool {
+    for i := 0; i <= len(s)-len(substr); i++ {
+        if s[i:i+len(substr)] == substr {
+            return true
+        }
+    }
+    return false
 }
 
 func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
@@ -187,7 +230,6 @@ func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
 		current := 5.0 + float64(i%3)*0.2
 		power := voltage * current
 		energy := 24.0 + float64(i)*0.3
-		prediction := energy + 1.5 + float64(i%2)*0.5
 
 		data := models.EnergyData{
 			Timestamp: 	now.Add(-time.Duration(i) * time.Minute).UnixMilli(), 
@@ -211,8 +253,8 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	// ✅ FIXED: Use correct path root.energy.*
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.energy WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
+	// ✅ FIXED: Use correct path root.wattwise.*
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
 
 	log.Printf("Executing query: %s", query)
 

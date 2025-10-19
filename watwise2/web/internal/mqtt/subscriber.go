@@ -1,3 +1,4 @@
+// File: web/internal/mqtt/subscriber.go
 package mqtt
 
 import (
@@ -39,16 +40,18 @@ func (s *Subscriber) SetWebSocketBroadcaster(broadcaster WebSocketBroadcaster) {
 	log.Println("✅ WebSocket broadcaster connected to MQTT subscriber")
 }
 
-// SubscribeToEnergyData subscribes to energy data from ESP32 devices
+// ✅ FIXED: SubscribeToEnergyData - Subscribe ke topic yang benar
 func (s *Subscriber) SubscribeToEnergyData() error {
 	if !s.client.IsConnected() {
 		return fmt.Errorf("MQTT client not connected")
 	}
 
-	// Subscribe ke topic "test" (sesuai dengan ESP32 publish)
+	// ✅ FIXED: Subscribe ke topic yang sesuai dengan ESP32
 	topics := []string{
-		"test",              // Direct topic dari ESP32
+		"device/esp32",      // Topic dari ESP32 (lihat MQTT Explorer)
+		"test",              // Backward compatibility
 		"wattwise/energy/+", // Wildcard pattern
+		"esp32/pzem",        // Alternative topic
 	}
 
 	for _, topic := range topics {
