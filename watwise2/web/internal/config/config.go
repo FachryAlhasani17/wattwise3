@@ -51,17 +51,19 @@ func Load() *Config {
 			Env:  getEnv("ENV", "development"),
 		},
 		IoTDB: IoTDBConfig{
-			Host:     getEnv("IOTDB_HOST", "127.0.0.1"),
+			Host:     getEnv("IOTDB_HOST", "46.8.226.46"),
 			Port:     getEnv("IOTDB_PORT", "6667"),
 			Username: getEnv("IOTDB_USERNAME", "root"),
 			Password: getEnv("IOTDB_PASSWORD", "root"),
 		},
 		MQTT: MQTTConfig{
-			Broker:   getEnv("MQTT_BROKER", "tcp://127.0.0.1:1883"),
+			// ✅ FIX: Ubah dari "tcp://192.168.1.100 :1883" ke "tcp://192.168.1.100:1883" (TANPA SPASI)
+			// Juga bisa ganti IP ke 127.0.0.1 jika MQTT di localhost
+			Broker:   getEnv("MQTT_BROKER", "tcp://46.8.226.46:1883"),
 			Port:     getEnv("MQTT_PORT", "1883"),
 			ClientID: getEnv("MQTT_CLIENT_ID", "wattwise_server"),
-			Username: getEnv("MQTT_USERNAME", ""),
-			Password: getEnv("MQTT_PASSWORD", ""),
+			Username: getEnv("MQTT_USERNAME", "iotproject2025"),
+			Password: getEnv("MQTT_PASSWORD", "abc54321"),
 		},
 		JWT: JWTConfig{
 			Secret:     getEnv("JWT_SECRET", "wattwise-secret-key-change-in-production"),

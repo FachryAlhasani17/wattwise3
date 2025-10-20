@@ -106,7 +106,7 @@ func main() {
 	// Get MQTT broker from config
 	mqttBroker := cfg.MQTT.Broker
 	if mqttBroker == "" {
-		mqttBroker = "tcp://127.0.0.1:1883"
+		mqttBroker = "tcp://46.8.226.46:1883"
 		log.Printf("   ⚠️  MQTT_BROKER not set, using default: %s", mqttBroker)
 	}
 

@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 	"log"
+	"sort"
 	"time"
 	"wattwise/internal/config"
 	"wattwise/internal/models"
@@ -52,28 +53,23 @@ func (db *IoTDB) IsEnabled() bool {
 	return db.enabled
 }
 
-// ✅ FIXED: initSchema - use root.wattwise (sesuai dengan database yang sudah ada)
 func (db *IoTDB) initSchema() {
     log.Println("🔧 Initializing IoTDB schema...")
     
-    // 1. Create storage group (database)
-    // ✅ FIXED: Use root.wattwise (sesuai dengan database existing)
     storageGroupCmd := "CREATE STORAGE GROUP root.wattwise"
     log.Printf("   Executing: %s", storageGroupCmd)
     _, err := (*db.session).ExecuteStatement(storageGroupCmd)
     if err != nil {
         log.Printf("⚠️ Error creating storage group: %v", err)
-        // This is expected if already created, continue anyway
     }
 
-    // 2. Create timeseries with correct path root.wattwise.*
     timeseries := []string{
-        "CREATE TIMESERIES root.wattwise.voltage WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.wattwise.current WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.wattwise.power WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.wattwise.energy WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.wattwise.frequency WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
-        "CREATE TIMESERIES root.wattwise.power_factor WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
+        "CREATE TIMESERIES root.wattwise.voltage WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
+        "CREATE TIMESERIES root.wattwise.current WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
+        "CREATE TIMESERIES root.wattwise.power WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
+        "CREATE TIMESERIES root.wattwise.energy WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
+        "CREATE TIMESERIES root.wattwise.frequency WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
+        "CREATE TIMESERIES root.wattwise.power_factor WITH DATATYPE=DOUBLE, ENCODING=GORILLA, COMPRESSOR=LZ4",
         "CREATE TIMESERIES root.wattwise.prediction WITH DATATYPE=FLOAT, ENCODING=RLE, COMPRESSOR=SNAPPY",
     }
 
@@ -82,7 +78,6 @@ func (db *IoTDB) initSchema() {
         _, err := (*db.session).ExecuteStatement(ts)
         if err != nil {
             log.Printf("⚠️ Info creating timeseries: %v (mungkin sudah ada)", err)
-            // This is expected if already created, continue anyway
         }
     }
 
@@ -95,9 +90,9 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		return db.getDummyData(limit), nil
 	}
 
-	// Query mengambil time dan semua pengukuran (voltage, current, power, energy)
-	// ✅ FIXED: Use correct path root.wattwise.*
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise ORDER BY time DESC LIMIT %d", limit)
+	// ✅ FIX: Query WITHOUT ORDER BY (IoTDB 1.3.2 bug dengan ORDER BY)
+	// Kita sort di Go level saja
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
@@ -123,16 +118,21 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 
 		data := models.EnergyData{
 			Timestamp:   ts,
-			Voltage:    	float64(sessionDataSet.GetFloat("voltage")),
-			Current:    	float64(sessionDataSet.GetFloat("current")),
-			Power:      	float64(sessionDataSet.GetFloat("power")),
-			Energy:     	float64(sessionDataSet.GetFloat("energy")),
-			Frequency:     	float64(sessionDataSet.GetFloat("frequency")),
-			PowerFactor:   	float64(sessionDataSet.GetFloat("power_factor")),
+			Voltage:    	float64(sessionDataSet.GetDouble("voltage")),
+			Current:    	float64(sessionDataSet.GetDouble("current")),
+			Power:      	float64(sessionDataSet.GetDouble("power")),
+			Energy:     	float64(sessionDataSet.GetDouble("energy")),
+			Frequency:     	float64(sessionDataSet.GetDouble("frequency")),
+			PowerFactor:   	float64(sessionDataSet.GetDouble("power_factor")),
 		}
 
 		dataList = append(dataList, data)
 	}
+
+	// ✅ SORT DESC by timestamp di Go level
+	sort.Slice(dataList, func(i, j int) bool {
+		return dataList[i].Timestamp > dataList[j].Timestamp
+	})
 
 	return dataList, nil
 }
@@ -150,34 +150,29 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
 
     measurements := []string{"voltage", "current", "power", "energy", "frequency", "power_factor"}
     values := []interface{}{
-        float32(data.Voltage),
-        float32(data.Current),
-        float32(data.Power),
-        float32(data.Energy),
-        float32(data.Frequency),
-        float32(data.PowerFactor),
+        float64(data.Voltage),
+        float64(data.Current),
+        float64(data.Power),
+        float64(data.Energy),
+        float64(data.Frequency),
+        float64(data.PowerFactor),
     }
     dataTypes := []client.TSDataType{
-        client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT, client.FLOAT,
+        client.DOUBLE, client.DOUBLE, client.DOUBLE, client.DOUBLE, client.DOUBLE, client.DOUBLE,
     }
 
-    // ✅ FIXED: Use correct path root.wattwise
     status, err := (*db.session).InsertRecord("root.wattwise", measurements, dataTypes, values, timestamp)
     
-    // ✅ FIX: Auto-reconnect jika session error
     if err != nil {
         errMsg := err.Error()
         
-        // Cek jika error adalah session/statement expired
         if contains(errMsg, "doesn't exist") || contains(errMsg, "session") || contains(errMsg, "statement") {
             log.Printf("⚠️ IoTDB session error detected, attempting reconnect...")
             
-            // Close old session
             if db.session != nil {
                 (*db.session).Close()
             }
             
-            // Reconnect
             if reconnectErr := db.Connect(); reconnectErr != nil {
                 log.Printf("❌ Failed to reconnect to IoTDB: %v", reconnectErr)
                 return fmt.Errorf("IoTDB reconnect failed: %w", reconnectErr)
@@ -185,7 +180,6 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
             
             log.Println("✅ IoTDB reconnected successfully, retrying insert...")
             
-            // Retry insert
             status, err = (*db.session).InsertRecord("root.wattwise", measurements, dataTypes, values, timestamp)
             if err != nil {
                 log.Printf("❌ Retry insert also failed: %v", err)
@@ -200,14 +194,13 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
     if status != nil && status.GetCode() != 200 {
         log.Printf("⚠️ IoTDB insert returned non-OK status: %v", status)
     } else {
-        log.Printf("✅ Inserted to IoTDB: V=%.2fV I=%.3fA P=%.1fW E=%.5fkWh T=%d",
+        log.Printf("✅ Inserted to IoTDB: V=%.2fV I=%.3fA P=%.2fW E=%.5fkWh T=%d",
             data.Voltage, data.Current, data.Power, data.Energy, timestamp)
     }
 
     return nil
 }
 
-// Helper function to check if string contains substring
 func contains(s, substr string) bool {
     return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
 }
@@ -246,15 +239,14 @@ func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
 	return dataList
 }
 
-// GetDataByTimeRange query data dengan time range filter di database level
 func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyData, error) {
 	if !db.enabled {
 		log.Println("⚠️ IoTDB disabled, returning dummy data.")
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	// ✅ FIXED: Use correct path root.wattwise.*
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
+	// ✅ FIX: Query WITHOUT ORDER BY
+	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)
 
 	log.Printf("Executing query: %s", query)
 
@@ -281,34 +273,35 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 
 		data := models.EnergyData{
 			Timestamp:   ts,
-			Voltage:    	float64(sessionDataSet.GetFloat("voltage")),
-			Current:    	float64(sessionDataSet.GetFloat("current")),
-			Power:      	float64(sessionDataSet.GetFloat("power")),
-			Energy:     	float64(sessionDataSet.GetFloat("energy")),
-			Frequency:     	float64(sessionDataSet.GetFloat("frequency")),
-			PowerFactor:   	float64(sessionDataSet.GetFloat("power_factor")),
+			Voltage:    	float64(sessionDataSet.GetDouble("voltage")),
+			Current:    	float64(sessionDataSet.GetDouble("current")),
+			Power:      	float64(sessionDataSet.GetDouble("power")),
+			Energy:     	float64(sessionDataSet.GetDouble("energy")),
+			Frequency:     	float64(sessionDataSet.GetDouble("frequency")),
+			PowerFactor:   	float64(sessionDataSet.GetDouble("power_factor")),
 		}
 
 		dataList = append(dataList, data)
 	}
 
+	// ✅ SORT DESC by timestamp di Go level
+	sort.Slice(dataList, func(i, j int) bool {
+		return dataList[i].Timestamp > dataList[j].Timestamp
+	})
+
 	log.Printf("✅ Retrieved %d records from time range %d to %d", len(dataList), startTime, endTime)
 	return dataList, nil
 }
 
-// getDummyDataByTimeRange generate dummy data untuk time range tertentu
 func (db *IoTDB) getDummyDataByTimeRange(startTime, endTime int64) []models.EnergyData {
 	var dataList []models.EnergyData
 
 	startTimeObj := time.UnixMilli(startTime)
 	endTimeObj := time.UnixMilli(endTime)
 
-	// Generate data setiap 5 menit dalam range
 	for ts := startTimeObj; ts.Before(endTimeObj); ts = ts.Add(5 * time.Minute) {
-		// Simulate realistic energy data
 		hour := ts.Hour()
 		
-		// Peak hours (08:00 - 18:00): higher consumption
 		basePower := 500.0
 		if hour >= 8 && hour <= 18 {
 			basePower = 1200.0
