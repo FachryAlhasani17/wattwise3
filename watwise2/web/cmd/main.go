@@ -110,6 +110,9 @@ func main() {
 		log.Printf("   ⚠️  MQTT_BROKER not set, using default: %s", mqttBroker)
 	}
 
+	mqttOpts.SetUsername(cfg.MQTT.Username)  // ← TAMBAHKAN INI
+	mqttOpts.SetPassword(cfg.MQTT.Password)  // ← TAMBAHKAN INI
+
 	log.Printf("   ✓ MQTT Broker: %s", mqttBroker)
 	mqttOpts.AddBroker(mqttBroker)
 	mqttOpts.SetClientID(cfg.MQTT.ClientID)

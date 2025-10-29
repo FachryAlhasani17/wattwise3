@@ -48,10 +48,11 @@ func (s *Subscriber) SubscribeToEnergyData() error {
 
 	// ✅ FIXED: Subscribe ke topic yang sesuai dengan ESP32
 	topics := []string{
-		"device/esp32",      // Topic dari ESP32 (lihat MQTT Explorer)
-		"test",              // Backward compatibility
-		"wattwise/energy/+", // Wildcard pattern
-		"esp32/pzem",        // Alternative topic
+		"device/esp32/data",  // ← TAMBAHKAN INI (topic asli dari ESP32)
+		"device/esp32",       // Fallback
+		"test",               
+		"wattwise/energy/+",  
+		"esp32/pzem",
 	}
 
 	for _, topic := range topics {
@@ -66,9 +67,7 @@ func (s *Subscriber) SubscribeToEnergyData() error {
 		log.Printf("✅ Successfully subscribed to: %s", topic)
 	}
 
-	// Start device status checker
 	go s.checkDeviceStatus()
-
 	return nil
 }
 
