@@ -1,3 +1,4 @@
+// File: watwise2/web/cmd/main.go
 package main
 
 import (
@@ -30,12 +31,10 @@ func getWSLIP() string {
 	}
 
 	for _, iface := range interfaces {
-		// Skip loopback and down interfaces
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 
-		// Get addresses for this interface
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
@@ -54,7 +53,6 @@ func getWSLIP() string {
 				continue
 			}
 
-			// Return first non-loopback IPv4 address
 			if ip.To4() != nil {
 				return ip.String()
 			}
@@ -78,12 +76,13 @@ func main() {
 	log.Printf("   ✓ Server Port: %s", cfg.Server.Port)
 	log.Printf("   ✓ IoTDB: %s:%s", cfg.IoTDB.Host, cfg.IoTDB.Port)
 	log.Printf("   ✓ MQTT Broker: %s", cfg.MQTT.Broker)
+	log.Printf("   ✓ MQTT Username: %s", cfg.MQTT.Username) // ✅ TAMBAHKAN LOG INI
+	log.Printf("   ✓ MQTT Password: %s", cfg.MQTT.Password) // ✅ TAMBAHKAN LOG INI
 
 	// ===== SETUP IOTDB CONNECTION =====
 	log.Println("\n🗄️  Initializing IoTDB...")
 	db := database.NewIoTDB(cfg.IoTDB)
 
-	// ⭐ PENTING: Jangan panic jika IoTDB error, biarkan jalan dengan dummy mode
 	if err := db.Connect(); err != nil {
 		log.Printf("⚠️  IoTDB connection failed: %v", err)
 		log.Println("   ℹ️  Running in DUMMY MODE - data won't be persisted")
@@ -103,18 +102,21 @@ func main() {
 	log.Println("\n📡 Initializing MQTT...")
 	mqttOpts := mqttLib.NewClientOptions()
 
-	// Get MQTT broker from config
+	// ✅ PENTING: Gunakan broker dari config
 	mqttBroker := cfg.MQTT.Broker
 	if mqttBroker == "" {
-		mqttBroker = "tcp://46.8.226.46:1883"
+		mqttBroker = "tcp://46.8.226.208:1883"
 		log.Printf("   ⚠️  MQTT_BROKER not set, using default: %s", mqttBroker)
 	}
 
-	mqttOpts.SetUsername(cfg.MQTT.Username)  // ← TAMBAHKAN INI
-	mqttOpts.SetPassword(cfg.MQTT.Password)  // ← TAMBAHKAN INI
-
 	log.Printf("   ✓ MQTT Broker: %s", mqttBroker)
 	mqttOpts.AddBroker(mqttBroker)
+	
+	// ✅ CRITICAL: Set credentials SEBELUM connection
+	mqttOpts.SetUsername(cfg.MQTT.Username)
+	mqttOpts.SetPassword(cfg.MQTT.Password)
+	log.Printf("   ✓ MQTT Auth: %s / %s", cfg.MQTT.Username, cfg.MQTT.Password)
+	
 	mqttOpts.SetClientID(cfg.MQTT.ClientID)
 	mqttOpts.SetCleanSession(true)
 	mqttOpts.SetAutoReconnect(true)
@@ -142,12 +144,20 @@ func main() {
 	// Try to connect
 	log.Println("   ⏳ Connecting to MQTT broker...")
 	token := mqttClient.Connect()
-	if token.Wait() && token.Error() == nil {
-		log.Println("✅ MQTT connected successfully")
-		mqttConnected = true
+	
+	// ✅ CRITICAL: Tunggu sampai benar-benar connect atau timeout
+	if token.WaitTimeout(10 * time.Second) {
+		if token.Error() != nil {
+			log.Printf("❌ MQTT connection failed: %v", token.Error())
+			log.Println("   ℹ️  MQTT will continue to retry in background")
+			log.Println("   ℹ️  CHECK: Network, firewall, broker status")
+		} else {
+			log.Println("✅ MQTT connected successfully")
+			mqttConnected = true
+		}
 	} else {
-		log.Printf("⚠️  MQTT connection failed: %v", token.Error())
-		log.Println("   ℹ️  MQTT will continue to retry in background")
+		log.Println("❌ MQTT connection timeout after 10s")
+		log.Println("   ℹ️  CHECK: Is broker reachable? Try: ping 46.8.226.208")
 	}
 
 	// ===== SETUP WEBSOCKET HANDLER =====
@@ -167,22 +177,11 @@ func main() {
 		log.Println("\n🔔 Subscribing to MQTT topics...")
 		if err := subscriber.SubscribeToEnergyData(); err != nil {
 			log.Printf("❌ Failed to subscribe to topics: %v", err)
-			log.Println("   ℹ️  Retrying subscription...")
-			// Retry setelah beberapa detik
-			go func() {
-				time.Sleep(5 * time.Second)
-				if err := subscriber.SubscribeToEnergyData(); err != nil {
-					log.Printf("❌ Retry failed: %v", err)
-				} else {
-					log.Println("✅ Subscription successful after retry")
-				}
-			}()
 		} else {
 			log.Println("✅ Successfully subscribed to energy topics")
 		}
 	} else {
 		log.Println("⚠️  Skipping MQTT subscription - broker not connected")
-		log.Println("   ℹ️  Will attempt to subscribe when connection established")
 		// Retry setelah connected
 		go func() {
 			retries := 0
@@ -231,29 +230,24 @@ func main() {
 		viewPath = filepath.Join(wd, "view")
 	}
 
-	// Check if paths exist
 	if _, err := os.Stat(viewPath); os.IsNotExist(err) {
 		log.Printf("⚠️  View path not found: %s", viewPath)
 	} else {
 		log.Printf("   ✓ View path: %s", viewPath)
 	}
 
-	// Setup routes dengan WebSocket
 	routes.SetupWithWebSocket(app, db, wsHandler)
 	log.Println("   ✓ API routes configured")
 
-	// Static files
 	app.Static("/css", filepath.Join(viewPath, "css"))
 	app.Static("/js", filepath.Join(viewPath, "js"))
 	app.Static("/view", viewPath)
 	log.Println("   ✓ Static files configured")
 
-	// Root redirect
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.Redirect("/view/login.html")
 	})
 
-	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":         "ok",
@@ -274,14 +268,12 @@ func main() {
 	defer func() {
 		log.Println("\n🛑 Shutting down gracefully...")
 
-		// Disconnect MQTT
 		if mqttClient.IsConnected() {
 			log.Println("   ⏳ Disconnecting MQTT...")
 			mqttClient.Disconnect(250)
 			log.Println("   ✓ MQTT disconnected")
 		}
 
-		// Close IoTDB
 		log.Println("   ⏳ Closing IoTDB...")
 		db.Close()
 		log.Println("   ✓ IoTDB closed")
@@ -297,7 +289,6 @@ func main() {
 	log.Printf("✅ Server starting: http://%s:%s", wslIP, cfg.Server.Port)
 	log.Println("═════════════════════════════════════════════")
 
-	// Build clickable URLs
 	webUI := fmt.Sprintf("http://%s:%s/view/login.html", wslIP, cfg.Server.Port)
 	apiHealth := fmt.Sprintf("http://%s:%s/health", wslIP, cfg.Server.Port)
 	wsURL := fmt.Sprintf("ws://%s:%s/ws", wslIP, cfg.Server.Port)
@@ -330,7 +321,6 @@ func main() {
 
 	log.Println("\n⏹️  Press Ctrl+C to stop the server\n")
 
-	// Listen on all interfaces
 	listenAddr := "0.0.0.0:" + cfg.Server.Port
 	if err := app.Listen(listenAddr); err != nil {
 		log.Fatalf("❌ Server error: %v", err)

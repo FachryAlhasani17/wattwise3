@@ -18,13 +18,101 @@ window.addEventListener('DOMContentLoaded', () => {
     // Set username
     document.getElementById('username').textContent = user.username || 'Admin';
     
-    // Initialize WebSocket
+    // Initialize Dashboard
     addConsoleLog('🚀 Dashboard initialized', 'success');
+    
+    // ✅ FETCH INITIAL DATA FROM IOTDB
+    fetchInitialData();
+    
+    // Initialize WebSocket for real-time updates
     initWebSocket();
     
     // Update time every second
     setInterval(updateLastUpdateTime, 1000);
 });
+
+// ===== FETCH INITIAL DATA FROM IOTDB =====
+async function fetchInitialData() {
+    addConsoleLog('📥 Fetching initial data from IoTDB...', 'info');
+    
+    try {
+        const token = getToken();
+        const response = await fetch('/api/energy/data?limit=50', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success && result.data && Array.isArray(result.data)) {
+            addConsoleLog(`✅ Loaded ${result.data.length} historical records from IoTDB`, 'success');
+            
+            // Process each data point
+            result.data.forEach(item => {
+                addHistoricalDataToTable(item);
+            });
+            
+            // Update the latest data to stat cards
+            if (result.data.length > 0) {
+                const latestData = result.data[0]; // First item is the latest
+                updateDashboardWithData(latestData, false); // false = don't add to history (already added)
+            }
+            
+            updateDataTable();
+            
+        } else {
+            addConsoleLog('⚠️ No historical data available', 'warning');
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to fetch initial data:', error);
+        addConsoleLog(`❌ Failed to load historical data: ${error.message}`, 'error');
+    }
+}
+
+// ===== ADD HISTORICAL DATA TO TABLE (WITHOUT LOGGING TO CONSOLE) =====
+function addHistoricalDataToTable(data) {
+    // Convert timestamp to Date object
+    let timestamp;
+    if (typeof data.timestamp === 'number') {
+        timestamp = new Date(data.timestamp);
+    } else if (typeof data.timestamp === 'string') {
+        timestamp = new Date(data.timestamp);
+    } else {
+        timestamp = new Date();
+    }
+    
+    const voltage = data.voltage || 0;
+    const current = data.current || 0;
+    const power = data.power || 0;
+    const energy = data.energy || 0;
+    const frequency = data.frequency || 50;
+    const pf = data.power_factor || data.pf || 1;
+    
+    // Skip invalid data
+    if (voltage === 0 && current === 0 && power === 0) {
+        return;
+    }
+    
+    const historyItem = {
+        timestamp,
+        voltage,
+        current,
+        power,
+        energy,
+        frequency,
+        pf
+    };
+    
+    dataHistory.push(historyItem);
+}
 
 // ===== WEBSOCKET FUNCTIONS =====
 function initWebSocket() {
@@ -44,10 +132,8 @@ function initWebSocket() {
         
         ws.onmessage = function(event) {
             try {
-                console.log('🔍 Raw WebSocket message:', event.data);
                 const data = JSON.parse(event.data);
-                console.log('🔍 Parsed WebSocket data:', data);
-                addConsoleLog('📨 Data received from WebSocket', 'success');
+                addConsoleLog('📨 Real-time data received from WebSocket', 'success');
                 handleWebSocketData(data);
             } catch (error) {
                 console.error('❌ Parse error:', error);
@@ -100,10 +186,6 @@ function updateConnectionStatus(connected) {
 
 // ===== DATA HANDLING =====
 function handleWebSocketData(data) {
-    // Log untuk debugging
-    console.log('🔍 Received data type:', typeof data);
-    console.log('🔍 Data keys:', Object.keys(data));
-    
     // Handle connection message
     if (data.type === 'connected') {
         addConsoleLog('✅ ' + data.message, 'success');
@@ -112,33 +194,19 @@ function handleWebSocketData(data) {
     
     // Handle different data formats from backend
     if (Array.isArray(data)) {
-        // If data is an array of readings
-        addConsoleLog(`📦 Received ${data.length} data items`, 'info');
         data.forEach(item => updateDashboardWithData(item));
     } else if (data.data && Array.isArray(data.data)) {
-        // If data is wrapped in {data: [...]}
-        addConsoleLog(`📦 Received ${data.data.length} data items`, 'info');
         data.data.forEach(item => updateDashboardWithData(item));
-    } else if (data.type === 'initial_data' && data.data) {
-        // Initial data from WebSocket handler
-        addConsoleLog('📥 Received initial data', 'info');
-        if (Array.isArray(data.data)) {
-            data.data.forEach(item => updateDashboardWithData(item));
-        }
     } else if (data.device_id || data.DeviceID || data.voltage || data.Voltage) {
         // Single data object (realtime from MQTT)
         addConsoleLog('📊 Received real-time data from MQTT', 'data');
-        updateDashboardWithData(data);
-    } else {
-        // Unknown format - try to process anyway
-        addConsoleLog('⚠️ Unknown data format, attempting to process', 'warning');
-        console.log('Data structure:', data);
         updateDashboardWithData(data);
     }
     
     updateLastUpdateTime();
 }
-function updateDashboardWithData(data) {
+
+function updateDashboardWithData(data, addToHistory = true) {
     // Extract values with fallback for different field names
     const voltage = data.voltage || data.Voltage || 0;
     const current = data.current || data.Current || 0;
@@ -170,29 +238,31 @@ function updateDashboardWithData(data) {
     updateStatTime('frequencyTime', timeStr);
     updateStatTime('pfTime', timeStr);
     
-    // Add to history
-    const historyItem = {
-        timestamp: now,
-        voltage,
-        current,
-        power,
-        energy,
-        frequency,
-        pf
-    };
-    
-    dataHistory.unshift(historyItem);
-    if (dataHistory.length > MAX_HISTORY) {
-        dataHistory = dataHistory.slice(0, MAX_HISTORY);
+    // Add to history only if this is new real-time data
+    if (addToHistory) {
+        const historyItem = {
+            timestamp: now,
+            voltage,
+            current,
+            power,
+            energy,
+            frequency,
+            pf
+        };
+        
+        dataHistory.unshift(historyItem);
+        if (dataHistory.length > MAX_HISTORY) {
+            dataHistory = dataHistory.slice(0, MAX_HISTORY);
+        }
+        
+        updateDataTable();
+        
+        // Log to console for real-time data only
+        addConsoleLog(
+            `📊 V: ${voltage.toFixed(2)}V | I: ${current.toFixed(2)}A | P: ${power.toFixed(2)}W | E: ${energy.toFixed(3)}kWh`,
+            'data'
+        );
     }
-    
-    updateDataTable();
-    
-    // Log to console
-    addConsoleLog(
-        `📊 V: ${voltage.toFixed(2)}V | I: ${current.toFixed(2)}A | P: ${power.toFixed(2)}W | E: ${energy.toFixed(3)}kWh`,
-        'data'
-    );
 }
 
 function updateStatCard(elementId, value, decimals) {
@@ -217,7 +287,7 @@ function updateStatTime(elementId, timeStr) {
 
 function updateDataTable() {
     const tbody = document.getElementById('dataTableBody');
-    const recentData = dataHistory.slice(0, 20);
+    const recentData = dataHistory.slice(0, 50); // Show up to 50 records
     
     if (recentData.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="no-data">No data available</td></tr>';
@@ -226,7 +296,7 @@ function updateDataTable() {
     
     tbody.innerHTML = recentData.map(item => `
         <tr>
-            <td>${item.timestamp.toLocaleTimeString('id-ID')}</td>
+            <td>${item.timestamp.toLocaleString('id-ID')}</td>
             <td>${item.voltage.toFixed(2)}</td>
             <td>${item.current.toFixed(2)}</td>
             <td>${item.power.toFixed(2)}</td>

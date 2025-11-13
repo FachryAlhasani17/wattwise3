@@ -1,4 +1,4 @@
-// File: web/internal/mqtt/subscriber.go
+// File: watwise2/web/internal/mqtt/subscriber.go
 package mqtt
 
 import (
@@ -40,19 +40,16 @@ func (s *Subscriber) SetWebSocketBroadcaster(broadcaster WebSocketBroadcaster) {
 	log.Println("✅ WebSocket broadcaster connected to MQTT subscriber")
 }
 
-// ✅ FIXED: SubscribeToEnergyData - Subscribe ke topic yang benar
+// ✅ FIXED: Subscribe ke topic esp32 (sesuai saran teman)
 func (s *Subscriber) SubscribeToEnergyData() error {
 	if !s.client.IsConnected() {
 		return fmt.Errorf("MQTT client not connected")
 	}
 
-	// ✅ FIXED: Subscribe ke topic yang sesuai dengan ESP32
+	// ✅ Topic sesuai perintah: mosquitto_pub -t esp32
 	topics := []string{
-		"device/esp32/data",  // ← TAMBAHKAN INI (topic asli dari ESP32)
-		"device/esp32",       // Fallback
-		"test",               
-		"wattwise/energy/+",  
-		"esp32/pzem",
+		"esp32",  // ← Topic utama dari ESP32
+		"test",   // Topic untuk testing
 	}
 
 	for _, topic := range topics {
@@ -71,7 +68,7 @@ func (s *Subscriber) SubscribeToEnergyData() error {
 	return nil
 }
 
-// ✅ FIXED: handleEnergyMessage with proper timestamp parsing and validation
+// ✅ FIXED: Handle message dengan format JSON dari ESP32
 func (s *Subscriber) handleEnergyMessage(client mqtt.Client, msg mqtt.Message) {
 	log.Printf("\n📨 ========== MQTT MESSAGE RECEIVED ==========")
 	log.Printf("   Topic: %s", msg.Topic())
@@ -101,8 +98,6 @@ func (s *Subscriber) handleEnergyMessage(client mqtt.Client, msg mqtt.Message) {
 	log.Printf("   Energy: %.4f kWh", mqttMsg.Energy)
 	log.Printf("   Frequency: %.1f Hz", mqttMsg.Frequency)
 	log.Printf("   Power Factor: %.3f", mqttMsg.PowerFactor)
-	log.Printf("   Timestamp (string): %s", mqttMsg.TimestampStr)
-	log.Printf("   Timestamp (int64): %d", mqttMsg.Timestamp)
 
 	// ===== VALIDATE DATA =====
 	log.Printf("\n✓ ========== VALIDATING DATA ==========")
@@ -120,39 +115,11 @@ func (s *Subscriber) handleEnergyMessage(client mqtt.Client, msg mqtt.Message) {
 	}
 	log.Printf("✅ Data validation passed")
 
-	// ===== HANDLE TIMESTAMP CONVERSION =====
-	log.Printf("\n⏱️ ========== TIMESTAMP CONVERSION ==========")
-	var timestampMs int64
-
-	if mqttMsg.TimestampStr != "" {
-		// Parse dari string format: "2025-10-20 00:55:31"
-		log.Printf("   Parsing timestamp from string: %s", mqttMsg.TimestampStr)
-		t, err := time.Parse("2006-01-02 15:04:05", mqttMsg.TimestampStr)
-		if err != nil {
-			log.Printf("⚠️ Failed to parse timestamp string: %v", err)
-			log.Printf("   Using current time instead")
-			timestampMs = time.Now().UnixMilli()
-		} else {
-			timestampMs = t.UnixMilli()
-			log.Printf("✅ Parsed timestamp from string: %d ms", timestampMs)
-		}
-	} else if mqttMsg.Timestamp > 0 {
-		// Handle jika timestamp sudah int64
-		log.Printf("   Parsing timestamp from int64: %d", mqttMsg.Timestamp)
-		if mqttMsg.Timestamp < 1000000000000 {
-			// Assume seconds -> convert to ms
-			log.Printf("⚠️ Timestamp is in seconds (< 13 digits), converting to ms")
-			timestampMs = mqttMsg.Timestamp * 1000
-		} else {
-			timestampMs = mqttMsg.Timestamp
-		}
-		log.Printf("✅ Timestamp: %d ms", timestampMs)
-	} else {
-		// Default: gunakan waktu sekarang
-		log.Printf("⚠️ No valid timestamp provided, using current time")
-		timestampMs = time.Now().UnixMilli()
-		log.Printf("✅ Current timestamp: %d ms", timestampMs)
-	}
+	// ===== TIMESTAMP GENERATION =====
+	// ✅ ESP32 tidak mengirim timestamp, generate di server
+	log.Printf("\n⏱️ ========== TIMESTAMP GENERATION ==========")
+	timestampMs := time.Now().UnixMilli()
+	log.Printf("✅ Generated server timestamp: %d ms", timestampMs)
 
 	// ===== CONVERT TO ENERGYDATA MODEL =====
 	log.Printf("\n🔄 ========== CONVERTING TO ENERGYDATA ==========")

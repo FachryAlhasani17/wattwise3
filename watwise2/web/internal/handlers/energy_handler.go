@@ -112,17 +112,41 @@ func (h *EnergyHandler) GetHistoricalData(c *fiber.Ctx) error {
 	})
 }
 
-// GetData returns latest N records (untuk backward compatibility & frontend)
+// ✅ GetData returns latest N records (FIXED: Better error handling)
 func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
 	limit := c.QueryInt("limit", 50)
+	
+	log.Printf("📊 GetData called with limit: %d", limit)
 
-	dataList, err := h.db.GetLatestData(limit)
-	if err != nil {
-		log.Printf("ERROR: GetLatestData in GetData failed: %v", err)
-		return utils.ErrorResponse(c, fiber.StatusInternalServerError,
-			"Failed to fetch energy data: "+err.Error())
+	// Validasi limit
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+		log.Printf("⚠️ Invalid limit, using default: %d", limit)
 	}
 
+	// Check if IoTDB is enabled
+	if !h.db.IsEnabled() {
+		log.Printf("⚠️ IoTDB is not enabled, returning empty array")
+		return utils.SuccessResponse(c, []models.EnergyData{})
+	}
+
+	// Get data from IoTDB
+	dataList, err := h.db.GetLatestData(limit)
+	if err != nil {
+		log.Printf("❌ ERROR in GetData: %v", err)
+		log.Printf("   IoTDB enabled: %v", h.db.IsEnabled())
+		
+		// ✅ Return empty array instead of error (graceful degradation)
+		return utils.SuccessResponse(c, []models.EnergyData{})
+	}
+
+	// Check if data is empty
+	if len(dataList) == 0 {
+		log.Printf("⚠️ GetData returned 0 records")
+		return utils.SuccessResponse(c, []models.EnergyData{})
+	}
+
+	log.Printf("✅ GetData successful: returned %d records", len(dataList))
 	return utils.SuccessResponse(c, dataList)
 }
 
