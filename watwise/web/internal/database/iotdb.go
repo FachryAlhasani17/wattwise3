@@ -92,8 +92,7 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 
 	// ✅ FIX: Query WITHOUT ORDER BY (IoTDB 1.3.2 bug dengan ORDER BY)
 	// Kita sort di Go level saja
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
-
+	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
         log.Printf("⚠️ Query error: %v", err)
@@ -246,9 +245,7 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 	}
 
 	// ✅ FIX: Query WITHOUT ORDER BY
-	query := fmt.Sprintf("SELECT time, voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)
-
-	log.Printf("Executing query: %s", query)
+	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)	log.Printf("Executing query: %s", query)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
