@@ -84,15 +84,27 @@ func (db *IoTDB) initSchema() {
     log.Println("✅ IoTDB schema initialized!")
 }
 
+// ✅ ENHANCED: GetLatestData with flexible limit (up to 10000)
 func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 	if !db.enabled {
 		log.Println("⚠️ IoTDB disabled, returning dummy data.")
 		return db.getDummyData(limit), nil
 	}
 
-	// ✅ FIX: Query WITHOUT ORDER BY (IoTDB 1.3.2 bug dengan ORDER BY)
-	// Kita sort di Go level saja
+	// ✅ Validate and cap limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 10000 {
+		limit = 10000
+		log.Printf("⚠️ Requested limit too high, capping at 10000")
+	}
+
+	log.Printf("📊 Fetching latest %d records from IoTDB", limit)
+
+	// Query WITHOUT ORDER BY (IoTDB 1.3.2 bug)
 	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
+	
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
         log.Printf("⚠️ Query error: %v", err)
@@ -102,6 +114,9 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 	defer sessionDataSet.Close()
 
 	var dataList []models.EnergyData
+
+	log.Printf("📥 Processing query results...")
+	recordCount := 0
 
 	for {
 		hasNext, err := sessionDataSet.Next()
@@ -126,12 +141,17 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		}
 
 		dataList = append(dataList, data)
+		recordCount++
 	}
 
-	// ✅ SORT DESC by timestamp di Go level
+	log.Printf("✅ Retrieved %d records from IoTDB", recordCount)
+
+	// SORT DESC by timestamp in Go
 	sort.Slice(dataList, func(i, j int) bool {
 		return dataList[i].Timestamp > dataList[j].Timestamp
 	})
+
+	log.Printf("✅ Data sorted by timestamp (newest first)")
 
 	return dataList, nil
 }
@@ -244,7 +264,6 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	// ✅ FIX: Query WITHOUT ORDER BY - FIXED: Added newline
 	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)
 	log.Printf("Executing query: %s", query)
 
@@ -282,7 +301,7 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		dataList = append(dataList, data)
 	}
 
-	// ✅ SORT DESC by timestamp di Go level
+	// SORT DESC by timestamp
 	sort.Slice(dataList, func(i, j int) bool {
 		return dataList[i].Timestamp > dataList[j].Timestamp
 	})

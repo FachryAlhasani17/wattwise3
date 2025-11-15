@@ -2,9 +2,15 @@
 let ws = null;
 let autoScroll = true;
 let dataHistory = [];
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 1000; // Increased from 50 to 1000
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
+
+// Pagination state
+let currentPage = 1;
+let itemsPerPage = 50;
+let totalPages = 1;
+let isLoadingMore = false;
 
 // ===== INITIALIZATION =====
 window.addEventListener('DOMContentLoaded', () => {
@@ -21,8 +27,8 @@ window.addEventListener('DOMContentLoaded', () => {
     // Initialize Dashboard
     addConsoleLog('🚀 Dashboard initialized', 'success');
     
-    // ✅ FETCH INITIAL DATA FROM IOTDB
-    fetchInitialData();
+    // ✅ FETCH ALL DATA FROM IOTDB
+    fetchAllHistoricalData();
     
     // Initialize WebSocket for real-time updates
     initWebSocket();
@@ -31,9 +37,9 @@ window.addEventListener('DOMContentLoaded', () => {
     setInterval(updateLastUpdateTime, 1000);
 });
 
-// ===== FETCH INITIAL DATA FROM IOTDB =====
-async function fetchInitialData() {
-    addConsoleLog('📥 Fetching initial data from IoTDB...', 'info');
+// ===== FETCH ALL HISTORICAL DATA FROM IOTDB =====
+async function fetchAllHistoricalData() {
+    addConsoleLog('📥 Fetching ALL historical data from IoTDB...', 'info');
     
     try {
         const token = getToken();
@@ -43,9 +49,10 @@ async function fetchInitialData() {
             return;
         }
         
-        addConsoleLog('🔍 Requesting: /api/energy/data?limit=50', 'info');
+        // Request with higher limit (or implement pagination if backend supports it)
+        addConsoleLog('🔍 Requesting: /api/energy/data?limit=10000', 'info');
         
-        const response = await fetch('/api/energy/data?limit=50', {
+        const response = await fetch('/api/energy/data?limit=10000', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -58,8 +65,6 @@ async function fetchInitialData() {
         if (!response.ok) {
             const errorText = await response.text();
             addConsoleLog(`❌ HTTP Error ${response.status}: ${errorText}`, 'error');
-            
-            // Still continue with WebSocket even if historical data fails
             addConsoleLog('⚠️ Continuing with real-time data only...', 'warning');
             return;
         }
@@ -72,16 +77,26 @@ async function fetchInitialData() {
                 if (result.data.length > 0) {
                     addConsoleLog(`✅ Loaded ${result.data.length} historical records from IoTDB`, 'success');
                     
+                    // Clear existing data
+                    dataHistory = [];
+                    
                     // Process each data point
                     result.data.forEach(item => {
                         addHistoricalDataToTable(item);
                     });
                     
                     // Update the latest data to stat cards
-                    const latestData = result.data[0]; // First item is the latest
-                    updateDashboardWithData(latestData, false); // false = don't add to history
+                    const latestData = result.data[0];
+                    updateDashboardWithData(latestData, false);
                     
+                    // Calculate pagination
+                    totalPages = Math.ceil(dataHistory.length / itemsPerPage);
+                    
+                    // Update UI
                     updateDataTable();
+                    updatePaginationControls();
+                    
+                    addConsoleLog(`📊 Total pages: ${totalPages} | Items per page: ${itemsPerPage}`, 'info');
                 } else {
                     addConsoleLog('⚠️ No historical data available (empty array)', 'warning');
                 }
@@ -101,9 +116,8 @@ async function fetchInitialData() {
     }
 }
 
-// ===== ADD HISTORICAL DATA TO TABLE (WITHOUT LOGGING TO CONSOLE) =====
+// ===== ADD HISTORICAL DATA TO ARRAY =====
 function addHistoricalDataToTable(data) {
-    // Convert timestamp to Date object
     let timestamp;
     if (typeof data.timestamp === 'number') {
         timestamp = new Date(data.timestamp);
@@ -174,7 +188,6 @@ function initWebSocket() {
             addConsoleLog('🔌 WebSocket disconnected (Code: ' + event.code + ')', 'warning');
             updateConnectionStatus(false);
             
-            // Auto reconnect
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
@@ -210,19 +223,16 @@ function updateConnectionStatus(connected) {
 
 // ===== DATA HANDLING =====
 function handleWebSocketData(data) {
-    // Handle connection message
     if (data.type === 'connected') {
         addConsoleLog('✅ ' + data.message, 'success');
         return;
     }
     
-    // Handle different data formats from backend
     if (Array.isArray(data)) {
         data.forEach(item => updateDashboardWithData(item));
     } else if (data.data && Array.isArray(data.data)) {
         data.data.forEach(item => updateDashboardWithData(item));
     } else if (data.device_id || data.DeviceID || data.voltage || data.Voltage) {
-        // Single data object (realtime from MQTT)
         addConsoleLog('📊 Received real-time data from MQTT', 'data');
         updateDashboardWithData(data);
     }
@@ -231,7 +241,6 @@ function handleWebSocketData(data) {
 }
 
 function updateDashboardWithData(data, addToHistory = true) {
-    // Extract values with fallback for different field names
     const voltage = data.voltage || data.Voltage || 0;
     const current = data.current || data.Current || 0;
     const power = data.power || data.Power || 0;
@@ -239,12 +248,10 @@ function updateDashboardWithData(data, addToHistory = true) {
     const frequency = data.frequency || data.Frequency || 50;
     const pf = data.power_factor || data.PowerFactor || data.pf || 1;
     
-    // Skip if all values are zero (invalid data)
     if (voltage === 0 && current === 0 && power === 0) {
         return;
     }
     
-    // Update stat cards
     updateStatCard('voltageValue', voltage, 2);
     updateStatCard('currentValue', current, 2);
     updateStatCard('powerValue', power, 2);
@@ -252,7 +259,6 @@ function updateDashboardWithData(data, addToHistory = true) {
     updateStatCard('frequencyValue', frequency, 1);
     updateStatCard('pfValue', pf, 2);
     
-    // Update timestamps
     const now = new Date();
     const timeStr = now.toLocaleTimeString('id-ID');
     updateStatTime('voltageTime', timeStr);
@@ -262,7 +268,6 @@ function updateDashboardWithData(data, addToHistory = true) {
     updateStatTime('frequencyTime', timeStr);
     updateStatTime('pfTime', timeStr);
     
-    // Add to history only if this is new real-time data
     if (addToHistory) {
         const historyItem = {
             timestamp: now,
@@ -279,9 +284,12 @@ function updateDashboardWithData(data, addToHistory = true) {
             dataHistory = dataHistory.slice(0, MAX_HISTORY);
         }
         
-        updateDataTable();
+        // Recalculate pagination
+        totalPages = Math.ceil(dataHistory.length / itemsPerPage);
         
-        // Log to console for real-time data only
+        updateDataTable();
+        updatePaginationControls();
+        
         addConsoleLog(
             `📊 V: ${voltage.toFixed(2)}V | I: ${current.toFixed(2)}A | P: ${power.toFixed(2)}W | E: ${energy.toFixed(3)}kWh`,
             'data'
@@ -293,8 +301,6 @@ function updateStatCard(elementId, value, decimals) {
     const el = document.getElementById(elementId);
     if (el) {
         el.textContent = value.toFixed(decimals);
-        
-        // Add animation effect
         el.style.transform = 'scale(1.1)';
         setTimeout(() => {
             el.style.transform = 'scale(1)';
@@ -309,16 +315,23 @@ function updateStatTime(elementId, timeStr) {
     }
 }
 
+// ===== PAGINATION & TABLE UPDATE =====
 function updateDataTable() {
     const tbody = document.getElementById('dataTableBody');
-    const recentData = dataHistory.slice(0, 50); // Show up to 50 records
     
-    if (recentData.length === 0) {
+    if (dataHistory.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" class="no-data">No data available</td></tr>';
+        document.getElementById('historyCount').textContent = '0';
+        document.getElementById('totalData').textContent = '0';
         return;
     }
     
-    tbody.innerHTML = recentData.map(item => `
+    // Calculate start and end index for current page
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, dataHistory.length);
+    const pageData = dataHistory.slice(startIndex, endIndex);
+    
+    tbody.innerHTML = pageData.map(item => `
         <tr>
             <td>${item.timestamp.toLocaleString('id-ID')}</td>
             <td>${item.voltage.toFixed(2)}</td>
@@ -330,8 +343,56 @@ function updateDataTable() {
         </tr>
     `).join('');
     
-    document.getElementById('historyCount').textContent = recentData.length;
+    document.getElementById('historyCount').textContent = `${startIndex + 1}-${endIndex}`;
     document.getElementById('totalData').textContent = dataHistory.length;
+}
+
+function updatePaginationControls() {
+    const paginationDiv = document.getElementById('paginationControls');
+    if (!paginationDiv) return;
+    
+    if (dataHistory.length === 0) {
+        paginationDiv.innerHTML = '';
+        return;
+    }
+    
+    let html = `
+        <div class="pagination">
+            <button onclick="goToPage(1)" ${currentPage === 1 ? 'disabled' : ''}>⏮️ First</button>
+            <button onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>◀️ Prev</button>
+            <span class="page-info">Page ${currentPage} of ${totalPages}</span>
+            <button onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>Next ▶️</button>
+            <button onclick="goToPage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''}>Last ⏭️</button>
+        </div>
+        <div class="items-per-page">
+            <label>Items per page:</label>
+            <select onchange="changeItemsPerPage(this.value)">
+                <option value="25" ${itemsPerPage === 25 ? 'selected' : ''}>25</option>
+                <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50</option>
+                <option value="100" ${itemsPerPage === 100 ? 'selected' : ''}>100</option>
+                <option value="500" ${itemsPerPage === 500 ? 'selected' : ''}>500</option>
+            </select>
+        </div>
+    `;
+    
+    paginationDiv.innerHTML = html;
+}
+
+function goToPage(page) {
+    if (page < 1 || page > totalPages) return;
+    currentPage = page;
+    updateDataTable();
+    updatePaginationControls();
+    addConsoleLog(`📄 Navigated to page ${currentPage}`, 'info');
+}
+
+function changeItemsPerPage(value) {
+    itemsPerPage = parseInt(value);
+    currentPage = 1; // Reset to first page
+    totalPages = Math.ceil(dataHistory.length / itemsPerPage);
+    updateDataTable();
+    updatePaginationControls();
+    addConsoleLog(`📊 Changed items per page to ${itemsPerPage}`, 'info');
 }
 
 // ===== CONSOLE FUNCTIONS =====
@@ -345,12 +406,10 @@ function addConsoleLog(message, type = 'info') {
     
     console.appendChild(line);
     
-    // Auto scroll if enabled
     if (autoScroll) {
         console.scrollTop = console.scrollHeight;
     }
     
-    // Limit console lines to prevent memory issues
     const lines = console.querySelectorAll('.console-line');
     if (lines.length > 100) {
         lines[0].remove();
@@ -402,11 +461,9 @@ function logout() {
         ws.close();
     }
     
-    // Clear session storage
     sessionStorage.removeItem('wattwise_token');
     sessionStorage.removeItem('wattwise_user');
     
-    // Redirect to login
     window.location.href = '/view/login.html';
 }
 

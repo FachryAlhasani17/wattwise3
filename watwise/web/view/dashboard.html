@@ -5,6 +5,108 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wattwise - Real-time Energy Monitor</title>
     <link rel="stylesheet" href="/css/dashboard.css">
+    <style>
+        /* Additional styles for pagination */
+        .pagination-container {
+            background: white;
+            padding: 1rem 2rem;
+            border-radius: 0 0 16px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            border-top: 1px solid #e2e8f0;
+        }
+        
+        .pagination {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .pagination button {
+            padding: 0.5rem 1rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+        
+        .pagination button:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .page-info {
+            padding: 0.5rem 1rem;
+            background: #f1f5f9;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #334155;
+        }
+        
+        .items-per-page {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .items-per-page label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #475569;
+        }
+        
+        .items-per-page select {
+            padding: 0.5rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .items-per-page select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        @media (max-width: 768px) {
+            .pagination-container {
+                flex-direction: column;
+                padding: 1rem;
+            }
+            
+            .pagination {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+            
+            .pagination button {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.75rem;
+            }
+            
+            .items-per-page {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Navbar -->
@@ -160,12 +262,12 @@
             </div>
         </div>
 
-        <!-- Data Table Section -->
+        <!-- Data Table Section with Pagination -->
         <div class="table-section">
             <div class="table-header">
-                <h2>📋 Recent Data History</h2>
+                <h2>📋 Complete Data History</h2>
                 <div class="table-info">
-                    <span>Showing last <strong id="historyCount">0</strong> records</span>
+                    <span>Showing <strong id="historyCount">0</strong> of <strong id="totalData">0</strong> records</span>
                 </div>
             </div>
             <div class="table-container">
@@ -183,10 +285,14 @@
                     </thead>
                     <tbody id="dataTableBody">
                         <tr>
-                            <td colspan="7" class="no-data">Waiting for data...</td>
+                            <td colspan="7" class="no-data">Loading data from IoTDB...</td>
                         </tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- Pagination Controls -->
+            <div class="pagination-container" id="paginationControls">
+                <!-- Pagination will be dynamically inserted here -->
             </div>
         </div>
     </div>
