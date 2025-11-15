@@ -244,8 +244,9 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	// ✅ FIX: Query WITHOUT ORDER BY
-	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)	log.Printf("Executing query: %s", query)
+	// ✅ FIX: Query WITHOUT ORDER BY - FIXED: Added newline
+	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)
+	log.Printf("Executing query: %s", query)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
