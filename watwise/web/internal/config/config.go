@@ -53,7 +53,7 @@ func Load() *Config {
 		},
 		IoTDB: IoTDBConfig{
 			// ✅ FIXED: Gunakan IP 46.8.226.208 sesuai info teman
-			Host:     getEnv("IOTDB_HOST", "46.8.226.208"),
+			Host:     getEnv("IOTDB_HOST", "127.0.0.1"),
 			Port:     getEnv("IOTDB_PORT", "6667"),
 			Username: getEnv("IOTDB_USERNAME", "root"),
 			Password: getEnv("IOTDB_PASSWORD", "root"),

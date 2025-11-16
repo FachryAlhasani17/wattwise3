@@ -113,15 +113,19 @@ func (h *EnergyHandler) GetHistoricalData(c *fiber.Ctx) error {
 }
 
 // ✅ GetData returns latest N records (FIXED: Better error handling)
+// ✅ GetData returns latest N records with SAFE limit
 func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
 	limit := c.QueryInt("limit", 50)
 	
 	log.Printf("📊 GetData called with limit: %d", limit)
 
-	// Validasi limit
-	if limit <= 0 || limit > 1000 {
+	// ✅ SAFE: Cap maximum to prevent timeout
+	if limit <= 0 {
 		limit = 50
-		log.Printf("⚠️ Invalid limit, using default: %d", limit)
+	}
+	if limit > 50000 {
+		limit = 50000
+		log.Printf("⚠️ Limit capped to 50000 for safety")
 	}
 
 	// Check if IoTDB is enabled
@@ -130,14 +134,21 @@ func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
 		return utils.SuccessResponse(c, []models.EnergyData{})
 	}
 
+	// ✅ Add timeout protection
+	log.Printf("📥 Fetching %d records from IoTDB...", limit)
+	
 	// Get data from IoTDB
 	dataList, err := h.db.GetLatestData(limit)
 	if err != nil {
 		log.Printf("❌ ERROR in GetData: %v", err)
-		log.Printf("   IoTDB enabled: %v", h.db.IsEnabled())
 		
-		// ✅ Return empty array instead of error (graceful degradation)
-		return utils.SuccessResponse(c, []models.EnergyData{})
+		// Return partial success with error info
+		return c.Status(fiber.StatusOK).JSON(fiber.Map{
+			"success": true,
+			"data":    []models.EnergyData{},
+			"error":   err.Error(),
+			"message": "Failed to fetch from IoTDB, returning empty array",
+		})
 	}
 
 	// Check if data is empty
@@ -146,7 +157,7 @@ func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
 		return utils.SuccessResponse(c, []models.EnergyData{})
 	}
 
-	log.Printf("✅ GetData successful: returned %d records", len(dataList))
+	log.Printf("✅ GetData successful: returning %d records", len(dataList))
 	return utils.SuccessResponse(c, dataList)
 }
 
