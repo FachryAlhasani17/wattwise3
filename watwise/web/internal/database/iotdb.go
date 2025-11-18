@@ -84,26 +84,29 @@ func (db *IoTDB) initSchema() {
     log.Println("✅ IoTDB schema initialized!")
 }
 
-// ✅ ENHANCED: GetLatestData with flexible limit (up to 10000)
+// ✅ FIXED: GetLatestData - properly handle ALL data requests
 func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 	if !db.enabled {
 		log.Println("⚠️ IoTDB disabled, returning dummy data.")
 		return db.getDummyData(limit), nil
 	}
 
-	// ✅ Validate and cap limit
+	// ✅ Set default if limit is 0 or negative
 	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 10000 {
-		limit = 10000
-		log.Printf("⚠️ Requested limit too high, capping at 10000")
+		limit = 10000 // Default to 10k if not specified
 	}
 
-	log.Printf("📊 Fetching latest %d records from IoTDB", limit)
-
-	// Query WITHOUT ORDER BY (IoTDB 1.3.2 bug)
-	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
+	// ✅ Build query - use LIMIT only if reasonable, otherwise get all
+	var query string
+	if limit >= 100000 {
+		// Request for ALL data - no LIMIT clause
+		log.Printf("📊 Fetching ALL records from IoTDB (no limit)")
+		query = "SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise"
+	} else {
+		// Normal query with limit
+		log.Printf("📊 Fetching latest %d records from IoTDB", limit)
+		query = fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
+	}
 	
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
@@ -142,16 +145,22 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 
 		dataList = append(dataList, data)
 		recordCount++
+		
+		// Progress indicator for large datasets
+		if recordCount%1000 == 0 {
+			log.Printf("   📥 Processed %d records...", recordCount)
+		}
 	}
 
 	log.Printf("✅ Retrieved %d records from IoTDB", recordCount)
 
 	// SORT DESC by timestamp in Go
+	log.Printf("🔄 Sorting data by timestamp (newest first)...")
 	sort.Slice(dataList, func(i, j int) bool {
 		return dataList[i].Timestamp > dataList[j].Timestamp
 	})
 
-	log.Printf("✅ Data sorted by timestamp (newest first)")
+	log.Printf("✅ Data sorted successfully")
 
 	return dataList, nil
 }
@@ -212,9 +221,6 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
 
     if status != nil && status.GetCode() != 200 {
         log.Printf("⚠️ IoTDB insert returned non-OK status: %v", status)
-    } else {
-        log.Printf("✅ Inserted to IoTDB: V=%.2fV I=%.3fA P=%.2fW E=%.5fkWh T=%d",
-            data.Voltage, data.Current, data.Power, data.Energy, timestamp)
     }
 
     return nil

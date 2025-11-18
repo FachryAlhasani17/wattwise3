@@ -2,7 +2,7 @@
 let ws = null;
 let autoScroll = true;
 let dataHistory = [];
-const MAX_HISTORY = 1000; // Increased from 50 to 1000
+const MAX_HISTORY = 100000; // Increased to 100k
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
@@ -49,10 +49,10 @@ async function fetchAllHistoricalData() {
             return;
         }
         
-        // Request with higher limit (or implement pagination if backend supports it)
-        addConsoleLog('🔍 Requesting: /api/energy/data?limit=10000', 'info');
+        // ✅ STRATEGY 1: Try to get data with very high limit
+        addConsoleLog('🔍 Strategy 1: Requesting with limit=100000', 'info');
         
-        const response = await fetch('/api/energy/data?limit=10000', {
+        let response = await fetch('/api/energy/data?limit=100000', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -63,56 +63,79 @@ async function fetchAllHistoricalData() {
         addConsoleLog(`📡 Response status: ${response.status} ${response.statusText}`, 'info');
         
         if (!response.ok) {
-            const errorText = await response.text();
-            addConsoleLog(`❌ HTTP Error ${response.status}: ${errorText}`, 'error');
-            addConsoleLog('⚠️ Continuing with real-time data only...', 'warning');
-            return;
+            addConsoleLog(`❌ Strategy 1 failed, trying Strategy 2...`, 'warning');
+            
+            // ✅ STRATEGY 2: Use time range to get ALL data
+            // Get data from 1 year ago to now
+            const endTime = Date.now();
+            const startTime = endTime - (365 * 24 * 60 * 60 * 1000); // 1 year ago
+            
+            addConsoleLog(`🔍 Strategy 2: Using time range (${new Date(startTime).toISOString()} to ${new Date(endTime).toISOString()})`, 'info');
+            
+            response = await fetch(`/api/energy/history?device_id=ESP32_PZEM&start_time=${startTime}&end_time=${endTime}&limit=100000`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                addConsoleLog(`❌ All strategies failed: ${errorText}`, 'error');
+                return;
+            }
         }
         
         const result = await response.json();
-        console.log('🔍 API Response:', result);
+        console.log('🔍 API Full Response:', result);
+        
+        // Handle different response formats
+        let dataArray = [];
         
         if (result.success && result.data) {
-            if (Array.isArray(result.data)) {
-                if (result.data.length > 0) {
-                    addConsoleLog(`✅ Loaded ${result.data.length} historical records from IoTDB`, 'success');
-                    
-                    // Clear existing data
-                    dataHistory = [];
-                    
-                    // Process each data point
-                    result.data.forEach(item => {
-                        addHistoricalDataToTable(item);
-                    });
-                    
-                    // Update the latest data to stat cards
-                    const latestData = result.data[0];
-                    updateDashboardWithData(latestData, false);
-                    
-                    // Calculate pagination
-                    totalPages = Math.ceil(dataHistory.length / itemsPerPage);
-                    
-                    // Update UI
-                    updateDataTable();
-                    updatePaginationControls();
-                    
-                    addConsoleLog(`📊 Total pages: ${totalPages} | Items per page: ${itemsPerPage}`, 'info');
-                } else {
-                    addConsoleLog('⚠️ No historical data available (empty array)', 'warning');
-                }
-            } else {
-                addConsoleLog('⚠️ Data is not an array', 'warning');
-                console.log('Data type:', typeof result.data);
+            dataArray = result.data;
+        } else if (result.data) {
+            dataArray = result.data;
+        } else if (Array.isArray(result)) {
+            dataArray = result;
+        }
+        
+        if (Array.isArray(dataArray) && dataArray.length > 0) {
+            addConsoleLog(`✅ Loaded ${dataArray.length} historical records from IoTDB`, 'success');
+            
+            // Clear existing data
+            dataHistory = [];
+            
+            // Process each data point
+            dataArray.forEach(item => {
+                addHistoricalDataToTable(item);
+            });
+            
+            addConsoleLog(`✅ Successfully processed ${dataHistory.length} valid records`, 'success');
+            
+            // Update the latest data to stat cards
+            if (dataHistory.length > 0) {
+                const latestData = dataHistory[0]; // First item should be latest after processing
+                updateDashboardWithDataDirect(latestData, false);
             }
+            
+            // Calculate pagination
+            totalPages = Math.ceil(dataHistory.length / itemsPerPage);
+            
+            // Update UI
+            updateDataTable();
+            updatePaginationControls();
+            
+            addConsoleLog(`📊 Total pages: ${totalPages} | Items per page: ${itemsPerPage}`, 'info');
         } else {
-            addConsoleLog('⚠️ No historical data available (invalid response)', 'warning');
+            addConsoleLog('⚠️ No historical data available or empty array', 'warning');
             console.log('Response structure:', result);
         }
         
     } catch (error) {
         console.error('❌ Failed to fetch initial data:', error);
         addConsoleLog(`❌ Failed to load historical data: ${error.message}`, 'error');
-        addConsoleLog('⚠️ Continuing with real-time data only...', 'warning');
     }
 }
 
@@ -123,19 +146,26 @@ function addHistoricalDataToTable(data) {
         timestamp = new Date(data.timestamp);
     } else if (typeof data.timestamp === 'string') {
         timestamp = new Date(data.timestamp);
+    } else if (data.Timestamp) {
+        // Handle capitalized field name
+        if (typeof data.Timestamp === 'number') {
+            timestamp = new Date(data.Timestamp);
+        } else {
+            timestamp = new Date(data.Timestamp);
+        }
     } else {
         timestamp = new Date();
     }
     
-    const voltage = data.voltage || 0;
-    const current = data.current || 0;
-    const power = data.power || 0;
-    const energy = data.energy || 0;
-    const frequency = data.frequency || 50;
-    const pf = data.power_factor || data.pf || 1;
+    const voltage = data.voltage || data.Voltage || 0;
+    const current = data.current || data.Current || 0;
+    const power = data.power || data.Power || 0;
+    const energy = data.energy || data.Energy || 0;
+    const frequency = data.frequency || data.Frequency || 50;
+    const pf = data.power_factor || data.PowerFactor || data.pf || 1;
     
-    // Skip invalid data
-    if (voltage === 0 && current === 0 && power === 0) {
+    // Skip invalid data (but be more lenient)
+    if (voltage === 0 && current === 0 && power === 0 && energy === 0) {
         return;
     }
     
@@ -297,6 +327,31 @@ function updateDashboardWithData(data, addToHistory = true) {
     }
 }
 
+// Direct update without adding to history (for initial load)
+function updateDashboardWithDataDirect(historyItem, addToHistory = false) {
+    const voltage = historyItem.voltage || 0;
+    const current = historyItem.current || 0;
+    const power = historyItem.power || 0;
+    const energy = historyItem.energy || 0;
+    const frequency = historyItem.frequency || 50;
+    const pf = historyItem.pf || 1;
+    
+    updateStatCard('voltageValue', voltage, 2);
+    updateStatCard('currentValue', current, 2);
+    updateStatCard('powerValue', power, 2);
+    updateStatCard('energyValue', energy, 3);
+    updateStatCard('frequencyValue', frequency, 1);
+    updateStatCard('pfValue', pf, 2);
+    
+    const timeStr = historyItem.timestamp.toLocaleTimeString('id-ID');
+    updateStatTime('voltageTime', timeStr);
+    updateStatTime('currentTime', timeStr);
+    updateStatTime('powerTime', timeStr);
+    updateStatTime('energyTime', timeStr);
+    updateStatTime('frequencyTime', timeStr);
+    updateStatTime('pfTime', timeStr);
+}
+
 function updateStatCard(elementId, value, decimals) {
     const el = document.getElementById(elementId);
     if (el) {
@@ -371,6 +426,7 @@ function updatePaginationControls() {
                 <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50</option>
                 <option value="100" ${itemsPerPage === 100 ? 'selected' : ''}>100</option>
                 <option value="500" ${itemsPerPage === 500 ? 'selected' : ''}>500</option>
+                <option value="1000" ${itemsPerPage === 1000 ? 'selected' : ''}>1000</option>
             </select>
         </div>
     `;
@@ -388,7 +444,7 @@ function goToPage(page) {
 
 function changeItemsPerPage(value) {
     itemsPerPage = parseInt(value);
-    currentPage = 1; // Reset to first page
+    currentPage = 1;
     totalPages = Math.ceil(dataHistory.length / itemsPerPage);
     updateDataTable();
     updatePaginationControls();
