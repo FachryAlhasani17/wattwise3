@@ -6,6 +6,184 @@
     <title>Wattwise - Real-time Energy Monitor</title>
     <link rel="stylesheet" href="/css/dashboard.css">
     <style>
+        /* ===== SIDEBAR STYLES ===== */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -280px;
+            width: 280px;
+            height: 100vh;
+            background: var(--white);
+            box-shadow: var(--shadow-xl);
+            transition: left 0.3s ease;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar.active {
+            left: 0;
+        }
+
+        .sidebar-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--gray-200);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .sidebar-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--gray-500);
+            padding: 0.25rem;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+
+        .sidebar-close:hover {
+            color: var(--dark);
+        }
+
+        .sidebar-menu {
+            flex: 1;
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+
+        .menu-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            color: var(--gray-700);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+            cursor: pointer;
+        }
+
+        .menu-item:hover {
+            background: var(--gray-100);
+            color: var(--primary);
+        }
+
+        .menu-item.active {
+            background: var(--gray-100);
+            color: var(--primary);
+            border-left-color: var(--primary);
+        }
+
+        .menu-icon {
+            font-size: 1.25rem;
+            width: 24px;
+            text-align: center;
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--gray-200);
+            font-size: 0.875rem;
+            color: var(--gray-500);
+            text-align: center;
+        }
+
+        /* ===== OVERLAY ===== */
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1999;
+            display: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .sidebar-overlay.active {
+            display: block;
+            opacity: 1;
+        }
+
+        /* ===== HAMBURGER BUTTON ===== */
+        .menu-toggle {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: var(--primary);
+            padding: 0.5rem;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            transition: transform 0.2s;
+        }
+
+        .menu-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        .navbar-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        /* ===== WEBCAM PAGE ===== */
+        .page-content {
+            display: none;
+        }
+
+        .page-content.active {
+            display: block;
+        }
+
+        .webcam-container {
+            background: var(--white);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            padding: 2rem;
+            margin-top: 2rem;
+        }
+
+        .webcam-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 500px;
+            background: var(--gray-100);
+            border-radius: var(--radius-lg);
+            border: 2px dashed var(--gray-300);
+        }
+
+        .webcam-placeholder-icon {
+            font-size: 5rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .webcam-placeholder-text {
+            color: var(--gray-500);
+            font-size: 1.25rem;
+            font-weight: 500;
+        }
+
         /* Additional styles for pagination */
         .pagination-container {
             background: white;
@@ -83,8 +261,18 @@
             outline: none;
             border-color: #667eea;
         }
-        
+
+        /* Responsive */
         @media (max-width: 768px) {
+            .sidebar {
+                width: 250px;
+                left: -250px;
+            }
+
+            .navbar-brand span {
+                font-size: 1.25rem;
+            }
+
             .pagination-container {
                 flex-direction: column;
                 padding: 1rem;
@@ -109,11 +297,41 @@
     </style>
 </head>
 <body>
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-brand">
+                <span>⚡</span>
+                <span>Wattwise</span>
+            </div>
+            <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
+        </div>
+        
+        <div class="sidebar-menu">
+            <a class="menu-item active" onclick="showPage('dashboard')">
+                <span class="menu-icon">📊</span>
+                <span>listrik</span>
+            </a>
+            <a class="menu-item" onclick="showPage('webcam')">
+                <span class="menu-icon">📹</span>
+                <span>Webcam</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Overlay -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
     <!-- Navbar -->
     <nav class="navbar">
-        <div class="navbar-brand">
-            <span class="icon">⚡</span>
-            <span>Wattwise</span>
+        <div class="navbar-left">
+            <button class="menu-toggle" onclick="toggleSidebar()">
+                ☰
+            </button>
+            <div class="navbar-brand">
+                <span class="icon">⚡</span>
+                <span>Wattwise</span>
+            </div>
         </div>
         <div class="navbar-right">
             <div class="connection-status">
@@ -131,168 +349,188 @@
 
     <!-- Main Container -->
     <div class="main-container">
-        <!-- Header Section -->
-        <div class="page-header">
-            <div class="header-content">
-                <h1>Real-time Energy Monitor</h1>
-                <p>Monitoring konsumsi energi listrik secara real-time dari perangkat IoT</p>
+        <!-- DASHBOARD PAGE -->
+        <div id="dashboardPage" class="page-content active">
+            <!-- Header Section -->
+            <div class="page-header">
+                <div class="header-content">
+                    <h1>Real-time Energy Monitor</h1>
+                    <p>Monitoring konsumsi energi listrik secara real-time dari perangkat IoT</p>
+                </div>
+                <div class="header-stats">
+                    <div class="mini-stat">
+                        <span class="mini-stat-label">Device</span>
+                        <span class="mini-stat-value" id="deviceName">ESP32_PZEM</span>
+                    </div>
+                    <div class="mini-stat">
+                        <span class="mini-stat-label">Last Update</span>
+                        <span class="mini-stat-value" id="lastUpdate">-</span>
+                    </div>
+                    <div class="mini-stat">
+                        <span class="mini-stat-label">Total Data</span>
+                        <span class="mini-stat-value" id="totalData">0</span>
+                    </div>
+                </div>
             </div>
-            <div class="header-stats">
-                <div class="mini-stat">
-                    <span class="mini-stat-label">Device</span>
-                    <span class="mini-stat-value" id="deviceName">ESP32_PZEM</span>
+
+            <!-- Real-time Stats Grid -->
+            <div class="stats-grid">
+                <div class="stat-card voltage">
+                    <div class="stat-header">
+                        <span class="stat-icon">⚡</span>
+                        <span class="stat-label">Tegangan</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="voltageValue">0.00</div>
+                        <div class="stat-unit">Volt</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="voltageTime">-</span>
+                    </div>
                 </div>
-                <div class="mini-stat">
-                    <span class="mini-stat-label">Last Update</span>
-                    <span class="mini-stat-value" id="lastUpdate">-</span>
+
+                <div class="stat-card current">
+                    <div class="stat-header">
+                        <span class="stat-icon">⚙️</span>
+                        <span class="stat-label">Arus</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="currentValue">0.00</div>
+                        <div class="stat-unit">Ampere</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="currentTime">-</span>
+                    </div>
                 </div>
-                <div class="mini-stat">
-                    <span class="mini-stat-label">Total Data</span>
-                    <span class="mini-stat-value" id="totalData">0</span>
+
+                <div class="stat-card power">
+                    <div class="stat-header">
+                        <span class="stat-icon">🔋</span>
+                        <span class="stat-label">Daya</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="powerValue">0.00</div>
+                        <div class="stat-unit">Watt</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="powerTime">-</span>
+                    </div>
+                </div>
+
+                <div class="stat-card energy">
+                    <div class="stat-header">
+                        <span class="stat-icon">📊</span>
+                        <span class="stat-label">Energi</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="energyValue">0.000</div>
+                        <div class="stat-unit">kWh</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="energyTime">-</span>
+                    </div>
+                </div>
+
+                <div class="stat-card frequency">
+                    <div class="stat-header">
+                        <span class="stat-icon">📈</span>
+                        <span class="stat-label">Frekuensi</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="frequencyValue">0.0</div>
+                        <div class="stat-unit">Hz</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="frequencyTime">-</span>
+                    </div>
+                </div>
+
+                <div class="stat-card pf">
+                    <div class="stat-header">
+                        <span class="stat-icon">✓</span>
+                        <span class="stat-label">Power Factor</span>
+                    </div>
+                    <div class="stat-body">
+                        <div class="stat-value" id="pfValue">0.00</div>
+                        <div class="stat-unit">-</div>
+                    </div>
+                    <div class="stat-footer">
+                        <span class="stat-time" id="pfTime">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Console Section -->
+            <div class="console-section">
+                <div class="console-header">
+                    <h2>📡 Real-time Console</h2>
+                    <div class="console-controls">
+                        <button class="btn-console" onclick="toggleAutoScroll()" id="btnAutoScroll">
+                            📌 Auto-scroll: ON
+                        </button>
+                        <button class="btn-console" onclick="clearConsole()">
+                            🗑️ Clear
+                        </button>
+                        <button class="btn-console" onclick="exportConsoleData()">
+                            💾 Export
+                        </button>
+                    </div>
+                </div>
+                <div class="console" id="console">
+                    <div class="console-line info">🚀 Initializing Wattwise Real-time Monitor...</div>
+                    <div class="console-line info">🔌 Connecting to WebSocket server...</div>
+                </div>
+            </div>
+
+            <!-- Data Table Section with Pagination -->
+            <div class="table-section">
+                <div class="table-header">
+                    <h2>📋 Complete Data History</h2>
+                    <div class="table-info">
+                        <span>Showing <strong id="historyCount">0</strong> of <strong id="totalDataTable">0</strong> records</span>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Voltage (V)</th>
+                                <th>Current (A)</th>
+                                <th>Power (W)</th>
+                                <th>Energy (kWh)</th>
+                                <th>Frequency (Hz)</th>
+                                <th>PF</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody">
+                            <tr>
+                                <td colspan="7" class="no-data">Loading data from IoTDB...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <!-- Pagination Controls -->
+                <div class="pagination-container" id="paginationControls">
+                    <!-- Pagination will be dynamically inserted here -->
                 </div>
             </div>
         </div>
 
-        <!-- Real-time Stats Grid -->
-        <div class="stats-grid">
-            <div class="stat-card voltage">
-                <div class="stat-header">
-                    <span class="stat-icon">⚡</span>
-                    <span class="stat-label">Tegangan</span>
-                </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="voltageValue">0.00</div>
-                    <div class="stat-unit">Volt</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="voltageTime">-</span>
+        <!-- WEBCAM PAGE -->
+        <div id="webcamPage" class="page-content">
+            <div class="page-header">
+                <div class="header-content">
+                    <h1>Webcam Monitor</h1>
+                    <p>Live webcam feed untuk monitoring visual ruangan</p>
                 </div>
             </div>
 
-            <div class="stat-card current">
-                <div class="stat-header">
-                    <span class="stat-icon">⚙️</span>
-                    <span class="stat-label">Arus</span>
+            <div class="webcam-container">
+                <div class="webcam-placeholder">
+                    <div class="webcam-placeholder-icon">📹</div>
+                    <div class="webcam-placeholder-text">Webcam feature coming soon...</div>
                 </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="currentValue">0.00</div>
-                    <div class="stat-unit">Ampere</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="currentTime">-</span>
-                </div>
-            </div>
-
-            <div class="stat-card power">
-                <div class="stat-header">
-                    <span class="stat-icon">🔋</span>
-                    <span class="stat-label">Daya</span>
-                </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="powerValue">0.00</div>
-                    <div class="stat-unit">Watt</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="powerTime">-</span>
-                </div>
-            </div>
-
-            <div class="stat-card energy">
-                <div class="stat-header">
-                    <span class="stat-icon">📊</span>
-                    <span class="stat-label">Energi</span>
-                </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="energyValue">0.000</div>
-                    <div class="stat-unit">kWh</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="energyTime">-</span>
-                </div>
-            </div>
-
-            <div class="stat-card frequency">
-                <div class="stat-header">
-                    <span class="stat-icon">📈</span>
-                    <span class="stat-label">Frekuensi</span>
-                </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="frequencyValue">0.0</div>
-                    <div class="stat-unit">Hz</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="frequencyTime">-</span>
-                </div>
-            </div>
-
-            <div class="stat-card pf">
-                <div class="stat-header">
-                    <span class="stat-icon">✓</span>
-                    <span class="stat-label">Power Factor</span>
-                </div>
-                <div class="stat-body">
-                    <div class="stat-value" id="pfValue">0.00</div>
-                    <div class="stat-unit">-</div>
-                </div>
-                <div class="stat-footer">
-                    <span class="stat-time" id="pfTime">-</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Console Section -->
-        <div class="console-section">
-            <div class="console-header">
-                <h2>📡 Real-time Console</h2>
-                <div class="console-controls">
-                    <button class="btn-console" onclick="toggleAutoScroll()" id="btnAutoScroll">
-                        📌 Auto-scroll: ON
-                    </button>
-                    <button class="btn-console" onclick="clearConsole()">
-                        🗑️ Clear
-                    </button>
-                    <button class="btn-console" onclick="exportConsoleData()">
-                        💾 Export
-                    </button>
-                </div>
-            </div>
-            <div class="console" id="console">
-                <div class="console-line info">🚀 Initializing Wattwise Real-time Monitor...</div>
-                <div class="console-line info">🔌 Connecting to WebSocket server...</div>
-            </div>
-        </div>
-
-        <!-- Data Table Section with Pagination -->
-        <div class="table-section">
-            <div class="table-header">
-                <h2>📋 Complete Data History</h2>
-                <div class="table-info">
-                    <span>Showing <strong id="historyCount">0</strong> of <strong id="totalData">0</strong> records</span>
-                </div>
-            </div>
-            <div class="table-container">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Voltage (V)</th>
-                            <th>Current (A)</th>
-                            <th>Power (W)</th>
-                            <th>Energy (kWh)</th>
-                            <th>Frequency (Hz)</th>
-                            <th>PF</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dataTableBody">
-                        <tr>
-                            <td colspan="7" class="no-data">Loading data from IoTDB...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <!-- Pagination Controls -->
-            <div class="pagination-container" id="paginationControls">
-                <!-- Pagination will be dynamically inserted here -->
             </div>
         </div>
     </div>
@@ -301,5 +539,55 @@
     <script src="/js/auth.js"></script>
     <script src="/js/websocket.js"></script>
     <script src="/js/dashboard.js"></script>
+    
+    <script>
+        // ===== SIDEBAR FUNCTIONS =====
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+        }
+
+        // ===== PAGE NAVIGATION =====
+        function showPage(pageName) {
+            // Hide all pages
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.remove('active');
+            });
+
+            // Show selected page
+            document.getElementById(pageName + 'Page').classList.add('active');
+
+            // Update active menu item
+            document.querySelectorAll('.menu-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.closest('.menu-item').classList.add('active');
+
+            // Close sidebar on mobile
+            if (window.innerWidth <= 768) {
+                toggleSidebar();
+            }
+
+            // Log page change
+            if (typeof addConsoleLog === 'function') {
+                addConsoleLog(`📄 Navigated to ${pageName} page`, 'info');
+            }
+        }
+
+        // Close sidebar when clicking outside
+        document.addEventListener('click', (e) => {
+            const sidebar = document.getElementById('sidebar');
+            const menuToggle = document.querySelector('.menu-toggle');
+            
+            if (sidebar.classList.contains('active') && 
+                !sidebar.contains(e.target) && 
+                !menuToggle.contains(e.target)) {
+                toggleSidebar();
+            }
+        });
+    </script>
 </body>
 </html>

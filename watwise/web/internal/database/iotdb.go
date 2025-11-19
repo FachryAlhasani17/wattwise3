@@ -3,7 +3,6 @@ package database
 import (
 	"fmt"
 	"log"
-	"sort"
 	"time"
 	"wattwise/internal/config"
 	"wattwise/internal/models"
@@ -91,56 +90,57 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		return db.getDummyData(limit), nil
 	}
 
-	// ✅ Set default if limit is 0 or negative
-	if limit <= 0 {
-		limit = 10000 // Default to 10k if not specified
-	}
-
-	// ✅ Build query - use LIMIT only if reasonable, otherwise get all
+	// ✅ Handle different limit scenarios
 	var query string
-	if limit >= 100000 {
-		// Request for ALL data - no LIMIT clause
+	
+	if limit <= 0 {
+		// limit=0 or negative means fetch ALL data without limit
 		log.Printf("📊 Fetching ALL records from IoTDB (no limit)")
-		query = "SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise"
+		query = `SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise ORDER BY time DESC`
+	} else if limit >= 1000000 {
+		// Very large limit (>= 1M), treat as "fetch all"
+		log.Printf("📊 Large limit detected (%d), fetching ALL records", limit)
+		query = `SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise ORDER BY time DESC`
 	} else {
-		// Normal query with limit
+		// Normal query with specific limit
 		log.Printf("📊 Fetching latest %d records from IoTDB", limit)
-		query = fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise LIMIT %d", limit)
+		query = fmt.Sprintf(`SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise ORDER BY time DESC LIMIT %d`, limit)
 	}
+	
+	log.Printf("🔍 Executing query: %s", query)
 	
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
-        log.Printf("⚠️ Query error: %v", err)
-        log.Printf("   Query was: %s", query)
-        return nil, err
+		log.Printf("❌ Query error: %v", err)
+		return nil, fmt.Errorf("query failed: %w", err)
 	}
 	defer sessionDataSet.Close()
 
 	var dataList []models.EnergyData
-
-	log.Printf("📥 Processing query results...")
 	recordCount := 0
 
+	log.Printf("📥 Processing query results...")
+	
 	for {
 		hasNext, err := sessionDataSet.Next()
 		if err != nil {
-            log.Printf("❌ Error during dataset iteration: %v", err)
-            break 
-        }
-        if !hasNext {
-            break
-        }
+			log.Printf("❌ Error during dataset iteration: %v", err)
+			break
+		}
+		if !hasNext {
+			break
+		}
 		
 		ts := sessionDataSet.GetTimestamp()
 
 		data := models.EnergyData{
 			Timestamp:   ts,
-			Voltage:    	float64(sessionDataSet.GetDouble("voltage")),
-			Current:    	float64(sessionDataSet.GetDouble("current")),
-			Power:      	float64(sessionDataSet.GetDouble("power")),
-			Energy:     	float64(sessionDataSet.GetDouble("energy")),
-			Frequency:     	float64(sessionDataSet.GetDouble("frequency")),
-			PowerFactor:   	float64(sessionDataSet.GetDouble("power_factor")),
+			Voltage:     float64(sessionDataSet.GetDouble("voltage")),
+			Current:     float64(sessionDataSet.GetDouble("current")),
+			Power:       float64(sessionDataSet.GetDouble("power")),
+			Energy:      float64(sessionDataSet.GetDouble("energy")),
+			Frequency:   float64(sessionDataSet.GetDouble("frequency")),
+			PowerFactor: float64(sessionDataSet.GetDouble("power_factor")),
 		}
 
 		dataList = append(dataList, data)
@@ -150,18 +150,17 @@ func (db *IoTDB) GetLatestData(limit int) ([]models.EnergyData, error) {
 		if recordCount%1000 == 0 {
 			log.Printf("   📥 Processed %d records...", recordCount)
 		}
+		
+		// Safety check: prevent OOM for extremely large datasets
+		if limit > 0 && recordCount >= 1000000 {
+			log.Printf("⚠️ Reached safety limit of 1M records, stopping fetch")
+			break
+		}
 	}
 
 	log.Printf("✅ Retrieved %d records from IoTDB", recordCount)
-
-	// SORT DESC by timestamp in Go
-	log.Printf("🔄 Sorting data by timestamp (newest first)...")
-	sort.Slice(dataList, func(i, j int) bool {
-		return dataList[i].Timestamp > dataList[j].Timestamp
-	})
-
-	log.Printf("✅ Data sorted successfully")
-
+	
+	// Data already sorted DESC from query, no need to sort again
 	return dataList, nil
 }
 
@@ -223,6 +222,9 @@ func (db *IoTDB) InsertData(data models.EnergyData) error {
         log.Printf("⚠️ IoTDB insert returned non-OK status: %v", status)
     }
 
+    log.Printf("✅ Inserted to IoTDB: V=%.2fV I=%.3fA P=%.2fW E=%.5fkWh T=%d", 
+        data.Voltage, data.Current, data.Power, data.Energy, timestamp)
+
     return nil
 }
 
@@ -240,6 +242,10 @@ func containsMiddle(s, substr string) bool {
 }
 
 func (db *IoTDB) getDummyData(limit int) []models.EnergyData {
+	if limit <= 0 {
+		limit = 100
+	}
+	
 	var dataList []models.EnergyData
 	now := time.Now()
 
@@ -270,8 +276,8 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		return db.getDummyDataByTimeRange(startTime, endTime), nil
 	}
 
-	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d", startTime, endTime)
-	log.Printf("Executing query: %s", query)
+	query := fmt.Sprintf("SELECT voltage, current, power, energy, frequency, power_factor FROM root.wattwise WHERE time >= %d AND time <= %d ORDER BY time DESC", startTime, endTime)
+	log.Printf("🔍 Executing time range query: %s", query)
 
 	sessionDataSet, err := (*db.session).ExecuteQueryStatement(query, nil)
 	if err != nil {
@@ -281,11 +287,12 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 	defer sessionDataSet.Close()
 
 	var dataList []models.EnergyData
+	recordCount := 0
 
 	for {
 		hasNext, err := sessionDataSet.Next()
 		if err != nil {
-			log.Printf("Error during dataset iteration: %v", err)
+			log.Printf("❌ Error during dataset iteration: %v", err)
 			break
 		}
 		if !hasNext {
@@ -305,12 +312,12 @@ func (db *IoTDB) GetDataByTimeRange(startTime, endTime int64) ([]models.EnergyDa
 		}
 
 		dataList = append(dataList, data)
+		recordCount++
+		
+		if recordCount%1000 == 0 {
+			log.Printf("   📥 Processed %d records...", recordCount)
+		}
 	}
-
-	// SORT DESC by timestamp
-	sort.Slice(dataList, func(i, j int) bool {
-		return dataList[i].Timestamp > dataList[j].Timestamp
-	})
 
 	log.Printf("✅ Retrieved %d records from time range %d to %d", len(dataList), startTime, endTime)
 	return dataList, nil

@@ -31,7 +31,6 @@ func NewEnergyHandler(db *database.IoTDB) *EnergyHandler {
 func (h *EnergyHandler) GetLatestData(c *fiber.Ctx) error {
 	deviceID := c.Query("device_id")
 
-	// Jika device_id tidak ada, ambil data terbaru (1 record)
 	if deviceID == "" {
 		dataList, err := h.db.GetLatestData(1)
 		if err != nil {
@@ -57,7 +56,6 @@ func (h *EnergyHandler) GetLatestData(c *fiber.Ctx) error {
 		return utils.SuccessResponse(c, response)
 	}
 
-	// Jika device_id ada, gunakan service untuk ambil data per device
 	reading, err := h.energyService.GetLatestData(deviceID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{
@@ -77,13 +75,11 @@ func (h *EnergyHandler) GetHistoricalData(c *fiber.Ctx) error {
 		})
 	}
 
-	// Parse limit
 	limit, _ := strconv.Atoi(c.Query("limit", "100"))
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 
-	// Parse time range
 	var startTime, endTime int64
 
 	if startTimeStr := c.Query("start_time"); startTimeStr != "" {
@@ -112,46 +108,46 @@ func (h *EnergyHandler) GetHistoricalData(c *fiber.Ctx) error {
 	})
 }
 
-// ✅ GetData returns latest N records (FIXED: Better error handling)
-// ✅ GetData returns latest N records with SAFE limit
+// ✅ FIXED: GetData returns latest N records with proper limit handling
 func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
-	limit := c.QueryInt("limit", 50)
+	limitStr := c.Query("limit", "50")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		log.Printf("⚠️ Invalid limit parameter: %s, using default 50", limitStr)
+		limit = 50
+	}
 	
 	log.Printf("📊 GetData called with limit: %d", limit)
 
-	// ✅ SAFE: Cap maximum to prevent timeout
-	if limit <= 0 {
+	// ✅ Handle special limit values
+	if limit == 0 {
+		log.Printf("🔍 Request for ALL data detected (limit=0)")
+	} else if limit < 0 {
+		log.Printf("⚠️ Negative limit (%d), using default 50", limit)
 		limit = 50
-	}
-	if limit > 50000 {
-		limit = 50000
-		log.Printf("⚠️ Limit capped to 50000 for safety")
+	} else if limit > 1000000 {
+		log.Printf("⚠️ Very large limit (%d), treating as 'fetch all'", limit)
+		limit = 0
 	}
 
-	// Check if IoTDB is enabled
 	if !h.db.IsEnabled() {
 		log.Printf("⚠️ IoTDB is not enabled, returning empty array")
 		return utils.SuccessResponse(c, []models.EnergyData{})
 	}
 
-	// ✅ Add timeout protection
-	log.Printf("📥 Fetching %d records from IoTDB...", limit)
+	log.Printf("📥 Fetching records from IoTDB (limit=%d)...", limit)
 	
-	// Get data from IoTDB
 	dataList, err := h.db.GetLatestData(limit)
 	if err != nil {
 		log.Printf("❌ ERROR in GetData: %v", err)
-		
-		// Return partial success with error info
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"success": true,
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
 			"data":    []models.EnergyData{},
 			"error":   err.Error(),
-			"message": "Failed to fetch from IoTDB, returning empty array",
+			"message": "Failed to fetch from IoTDB",
 		})
 	}
 
-	// Check if data is empty
 	if len(dataList) == 0 {
 		log.Printf("⚠️ GetData returned 0 records")
 		return utils.SuccessResponse(c, []models.EnergyData{})
@@ -163,14 +159,12 @@ func (h *EnergyHandler) GetData(c *fiber.Ctx) error {
 
 // GetFilteredData handles filtered energy data requests
 func (h *EnergyHandler) GetFilteredData(c *fiber.Ctx) error {
-	// Get query parameters
 	deviceID := c.Query("device_id")
 	filterType := c.Query("filter", "daily")
 	startDate := c.Query("startDate")
 	endDate := c.Query("endDate")
-	customDays := c.Query("days") // Untuk custom_days filter
+	customDays := c.Query("days")
 
-	// Validasi device_id
 	if deviceID == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
@@ -181,7 +175,6 @@ func (h *EnergyHandler) GetFilteredData(c *fiber.Ctx) error {
 	var results []models.FilteredEnergyData
 	var err error
 
-	// Execute query based on filter type
 	switch filterType {
 	case "hourly":
 		if startDate == "" || endDate == "" {
@@ -211,7 +204,6 @@ func (h *EnergyHandler) GetFilteredData(c *fiber.Ctx) error {
 		results, err = h.getWeeklyData(deviceID, startDate, endDate)
 
 	case "monthly":
-		// Untuk monthly, jika tidak ada date range, gunakan bulan ini
 		if startDate == "" {
 			startDate = time.Now().AddDate(0, 0, -30).Format("2006-01-02")
 		}
@@ -244,7 +236,6 @@ func (h *EnergyHandler) GetFilteredData(c *fiber.Ctx) error {
 		})
 	}
 
-	// Build response
 	response := models.FilteredResponse{
 		Success: true,
 		Filter:  filterType,
@@ -264,7 +255,6 @@ func (h *EnergyHandler) GetFilteredData(c *fiber.Ctx) error {
 
 // getHourlyData aggregates data by hour
 func (h *EnergyHandler) getHourlyData(deviceID, startDate, endDate string) ([]models.FilteredEnergyData, error) {
-	// Parse dates to timestamp
 	startTime, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
 		return nil, err
@@ -273,22 +263,19 @@ func (h *EnergyHandler) getHourlyData(deviceID, startDate, endDate string) ([]mo
 	if err != nil {
 		return nil, err
 	}
-	endTime = endTime.Add(24 * time.Hour) // Include end date
+	endTime = endTime.Add(24 * time.Hour)
 
 	startTimestamp := startTime.UnixMilli()
 	endTimestamp := endTime.UnixMilli()
 
-	// Get historical data
 	readings, err := h.energyService.GetHistoricalData(deviceID, startTimestamp, endTimestamp, 10000)
 	if err != nil {
 		return nil, err
 	}
 
-	// Aggregate by hour
 	hourMap := make(map[string]*models.FilteredEnergyData)
 
 	for _, reading := range readings {
-		// Convert time.Time to timestamp milliseconds
 		timestamp := reading.Timestamp.UnixMilli()
 		ts := time.UnixMilli(timestamp)
 		hourKey := ts.Format("2006-01-02 15:00:00")
@@ -317,7 +304,6 @@ func (h *EnergyHandler) getHourlyData(deviceID, startDate, endDate string) ([]mo
 		data.DataCount++
 	}
 
-	// Calculate averages and convert to slice
 	var results []models.FilteredEnergyData
 	for _, data := range hourMap {
 		if data.DataCount > 0 {
@@ -328,7 +314,6 @@ func (h *EnergyHandler) getHourlyData(deviceID, startDate, endDate string) ([]mo
 		results = append(results, *data)
 	}
 
-	// Sort by hour descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Hour > results[j].Hour
 	})
@@ -338,7 +323,6 @@ func (h *EnergyHandler) getHourlyData(deviceID, startDate, endDate string) ([]mo
 
 // getDailyData aggregates data by day
 func (h *EnergyHandler) getDailyData(deviceID, startDate, endDate string) ([]models.FilteredEnergyData, error) {
-	// Parse dates to timestamp
 	startTime, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
 		return nil, err
@@ -352,13 +336,11 @@ func (h *EnergyHandler) getDailyData(deviceID, startDate, endDate string) ([]mod
 	startTimestamp := startTime.UnixMilli()
 	endTimestamp := endTime.UnixMilli()
 
-	// Get historical data
 	readings, err := h.energyService.GetHistoricalData(deviceID, startTimestamp, endTimestamp, 10000)
 	if err != nil {
 		return nil, err
 	}
 
-	// Aggregate by day
 	dayMap := make(map[string]*models.FilteredEnergyData)
 
 	for _, reading := range readings {
@@ -390,7 +372,6 @@ func (h *EnergyHandler) getDailyData(deviceID, startDate, endDate string) ([]mod
 		data.DataCount++
 	}
 
-	// Calculate averages and convert to slice
 	var results []models.FilteredEnergyData
 	for _, data := range dayMap {
 		if data.DataCount > 0 {
@@ -401,7 +382,6 @@ func (h *EnergyHandler) getDailyData(deviceID, startDate, endDate string) ([]mod
 		results = append(results, *data)
 	}
 
-	// Sort by date descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Date > results[j].Date
 	})
@@ -411,7 +391,6 @@ func (h *EnergyHandler) getDailyData(deviceID, startDate, endDate string) ([]mod
 
 // getWeeklyData aggregates data by week
 func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]models.FilteredEnergyData, error) {
-	// Parse dates to timestamp
 	startTime, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
 		return nil, err
@@ -425,13 +404,11 @@ func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]mo
 	startTimestamp := startTime.UnixMilli()
 	endTimestamp := endTime.UnixMilli()
 
-	// Get historical data
 	readings, err := h.energyService.GetHistoricalData(deviceID, startTimestamp, endTimestamp, 10000)
 	if err != nil {
 		return nil, err
 	}
 
-	// Aggregate by week
 	weekMap := make(map[string]*models.FilteredEnergyData)
 
 	for _, reading := range readings {
@@ -440,7 +417,6 @@ func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]mo
 		year, week := ts.ISOWeek()
 		weekKey := fmt.Sprintf("%d-W%02d", year, week)
 
-		// Get Monday of this week for display
 		weekStart := ts.AddDate(0, 0, -int(ts.Weekday())+1)
 		weekStartStr := weekStart.Format("2006-01-02")
 
@@ -468,7 +444,6 @@ func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]mo
 		data.DataCount++
 	}
 
-	// Calculate averages and convert to slice
 	var results []models.FilteredEnergyData
 	for _, data := range weekMap {
 		if data.DataCount > 0 {
@@ -479,7 +454,6 @@ func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]mo
 		results = append(results, *data)
 	}
 
-	// Sort by week descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Week > results[j].Week
 	})
@@ -489,7 +463,6 @@ func (h *EnergyHandler) getWeeklyData(deviceID, startDate, endDate string) ([]mo
 
 // getMonthlyData aggregates data by month
 func (h *EnergyHandler) getMonthlyData(deviceID, startDate, endDate string) ([]models.FilteredEnergyData, error) {
-	// Parse dates to timestamp
 	startTime, err := time.Parse("2006-01-02", startDate)
 	if err != nil {
 		return nil, err
@@ -503,13 +476,11 @@ func (h *EnergyHandler) getMonthlyData(deviceID, startDate, endDate string) ([]m
 	startTimestamp := startTime.UnixMilli()
 	endTimestamp := endTime.UnixMilli()
 
-	// Get historical data
 	readings, err := h.energyService.GetHistoricalData(deviceID, startTimestamp, endTimestamp, 10000)
 	if err != nil {
 		return nil, err
 	}
 
-	// Aggregate by month
 	monthMap := make(map[string]*models.FilteredEnergyData)
 
 	for _, reading := range readings {
@@ -541,7 +512,6 @@ func (h *EnergyHandler) getMonthlyData(deviceID, startDate, endDate string) ([]m
 		data.DataCount++
 	}
 
-	// Calculate averages and convert to slice
 	var results []models.FilteredEnergyData
 	for _, data := range monthMap {
 		if data.DataCount > 0 {
@@ -552,7 +522,6 @@ func (h *EnergyHandler) getMonthlyData(deviceID, startDate, endDate string) ([]m
 		results = append(results, *data)
 	}
 
-	// Sort by month descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Date > results[j].Date
 	})
@@ -563,13 +532,11 @@ func (h *EnergyHandler) getMonthlyData(deviceID, startDate, endDate string) ([]m
 // getCustomDaysData gets data for specific selected days
 func (h *EnergyHandler) getCustomDaysData(deviceID, daysStr string) ([]models.FilteredEnergyData, error) {
 	days := strings.Split(daysStr, ",")
-
 	var allResults []models.FilteredEnergyData
 
 	for _, dayStr := range days {
 		dayStr = strings.TrimSpace(dayStr)
 
-		// Parse day
 		dayTime, err := time.Parse("2006-01-02", dayStr)
 		if err != nil {
 			continue
@@ -579,13 +546,11 @@ func (h *EnergyHandler) getCustomDaysData(deviceID, daysStr string) ([]models.Fi
 		startTimestamp := dayTime.UnixMilli()
 		endTimestamp := nextDay.UnixMilli()
 
-		// Get data for this day
 		readings, err := h.energyService.GetHistoricalData(deviceID, startTimestamp, endTimestamp, 10000)
 		if err != nil {
 			continue
 		}
 
-		// Aggregate this day
 		var totalKWh, sumPower, sumVoltage, sumCurrent float64
 		var maxPower, minPower float64
 		count := 0
@@ -622,7 +587,6 @@ func (h *EnergyHandler) getCustomDaysData(deviceID, daysStr string) ([]models.Fi
 		}
 	}
 
-	// Sort by date descending
 	sort.Slice(allResults, func(i, j int) bool {
 		return allResults[i].Date > allResults[j].Date
 	})
@@ -776,13 +740,12 @@ func (h *EnergyHandler) GetDeviceList(c *fiber.Ctx) error {
 
 // GetDeviceStatus gets status of devices
 func (h *EnergyHandler) GetDeviceStatus(c *fiber.Ctx) error {
-	// This will be implemented with MQTT subscriber
 	return c.JSON(fiber.Map{
 		"message": "Device status endpoint",
 	})
 }
 
-// InsertData inserts energy data (for manual testing or MQTT handler)
+// InsertData inserts energy data
 func (h *EnergyHandler) InsertData(c *fiber.Ctx) error {
 	var data models.EnergyData
 	if err := c.BodyParser(&data); err != nil {
