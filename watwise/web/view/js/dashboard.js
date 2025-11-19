@@ -2,14 +2,18 @@
 let ws = null;
 let autoScroll = true;
 let dataHistory = [];
-const MAX_HISTORY = 100000;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-// Pagination state
+// Pagination & Filter state
 let currentPage = 1;
 let itemsPerPage = 50;
-let totalPages = 1;
+let totalRecords = 0;
+let currentFilter = {
+    startDate: null,
+    endDate: null,
+    timeRange: '1h' // Default 1 hour
+};
 
 // ===== INITIALIZATION =====
 window.addEventListener('DOMContentLoaded', () => {
@@ -23,15 +27,51 @@ window.addEventListener('DOMContentLoaded', () => {
     
     addConsoleLog('🚀 Dashboard initialized', 'success');
     
-    fetchAllHistoricalData();
+    // Set default time range (last 1 hour)
+    setDefaultTimeRange();
+    
+    // Fetch dengan filter default
+    fetchHistoricalDataWithFilter();
+    
+    // Init WebSocket untuk real-time
     initWebSocket();
     
     setInterval(updateLastUpdateTime, 1000);
 });
 
-// ===== FETCH ALL HISTORICAL DATA FROM IOTDB =====
-async function fetchAllHistoricalData() {
-    addConsoleLog('📥 Fetching ALL historical data from IoTDB...', 'info');
+// ===== SET DEFAULT TIME RANGE =====
+function setDefaultTimeRange() {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    currentFilter.startDate = oneHourAgo;
+    currentFilter.endDate = now;
+    
+    // Update UI inputs jika ada
+    const startInput = document.getElementById('filterStartDate');
+    const endInput = document.getElementById('filterEndDate');
+    
+    if (startInput) {
+        startInput.value = formatDateTimeLocal(oneHourAgo);
+    }
+    if (endInput) {
+        endInput.value = formatDateTimeLocal(now);
+    }
+}
+
+function formatDateTimeLocal(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// ===== FETCH DATA DENGAN FILTER =====
+async function fetchHistoricalDataWithFilter() {
+    addConsoleLog('📥 Fetching filtered data from IoTDB...', 'info');
     
     try {
         const token = getToken();
@@ -41,9 +81,15 @@ async function fetchAllHistoricalData() {
             return;
         }
         
-        addConsoleLog('🔍 Requesting ALL data from backend (limit=0)', 'info');
+        const startTime = currentFilter.startDate.getTime();
+        const endTime = currentFilter.endDate.getTime();
         
-        let response = await fetch('/api/energy/data?limit=0', {
+        addConsoleLog(`🔍 Filter: ${currentFilter.startDate.toLocaleString()} to ${currentFilter.endDate.toLocaleString()}`, 'info');
+        
+        // Gunakan endpoint history dengan time range
+        const url = `/api/energy/history?device_id=ESP32_PZEM&start_time=${startTime}&end_time=${endTime}&limit=10000`;
+        
+        const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -51,145 +97,104 @@ async function fetchAllHistoricalData() {
             }
         });
         
-        addConsoleLog(`📡 Response status: ${response.status} ${response.statusText}`, 'info');
-        
         if (!response.ok) {
             const errorText = await response.text();
-            addConsoleLog(`❌ Failed to fetch data: ${errorText}`, 'error');
-            document.getElementById('dataTableBody').innerHTML = 
-                '<tr><td colspan="7" class="no-data">Failed to load data from IoTDB. Please check server connection.</td></tr>';
+            addConsoleLog(`❌ Failed to fetch: ${errorText}`, 'error');
+            showNoDataMessage('Failed to load data from IoTDB');
             return;
         }
         
         const result = await response.json();
-        console.log('🔍 API Response:', {
-            hasSuccess: 'success' in result,
-            successValue: result.success,
-            hasData: 'data' in result,
-            dataType: Array.isArray(result.data) ? 'array' : typeof result.data,
-            dataLength: Array.isArray(result.data) ? result.data.length : 'N/A'
-        });
         
         let dataArray = [];
         
-        if (result.success === true && result.data) {
+        if (result.data && Array.isArray(result.data)) {
             dataArray = result.data;
-            addConsoleLog('✅ Parsed response format: success=true', 'info');
-        } else if (result.success === false) {
-            addConsoleLog(`❌ API error: ${result.message || result.error}`, 'error');
-            document.getElementById('dataTableBody').innerHTML = 
-                `<tr><td colspan="7" class="no-data">Error: ${result.message || result.error}</td></tr>`;
-            return;
-        } else if (result.data) {
-            dataArray = result.data;
-            addConsoleLog('✅ Parsed response format: data field', 'info');
         } else if (Array.isArray(result)) {
             dataArray = result;
-            addConsoleLog('✅ Parsed response format: direct array', 'info');
-        }
-        
-        if (!Array.isArray(dataArray)) {
-            addConsoleLog(`⚠️ Invalid data format (expected array, got ${typeof dataArray})`, 'warning');
-            console.log('Data received:', dataArray);
-            document.getElementById('dataTableBody').innerHTML = 
-                '<tr><td colspan="7" class="no-data">Invalid data format from server</td></tr>';
-            return;
         }
         
         if (dataArray.length === 0) {
-            addConsoleLog('⚠️ No data in IoTDB', 'warning');
-            document.getElementById('dataTableBody').innerHTML = 
-                '<tr><td colspan="7" class="no-data">No data available. Start collecting from ESP32.</td></tr>';
+            addConsoleLog('⚠️ No data in selected time range', 'warning');
+            showNoDataMessage('No data in selected time range');
             return;
         }
         
-        addConsoleLog(`✅ Loaded ${dataArray.length} records from IoTDB`, 'success');
+        addConsoleLog(`✅ Loaded ${dataArray.length} records`, 'success');
         
+        // Process data
         dataHistory = [];
+        totalRecords = 0;
         
-        let validCount = 0;
-        let skippedCount = 0;
-        
-        dataArray.forEach((item, index) => {
-            if (addHistoricalDataToTable(item)) {
-                validCount++;
-            } else {
-                skippedCount++;
-                if (skippedCount <= 5) {
-                    console.warn(`Skipped item ${index}:`, item);
-                }
+        dataArray.forEach((item) => {
+            if (processHistoricalDataItem(item)) {
+                totalRecords++;
             }
         });
         
-        if (skippedCount > 0) {
-            addConsoleLog(`⚠️ Skipped ${skippedCount} invalid records`, 'warning');
-        }
-        
-        addConsoleLog(`✅ Processed ${validCount}/${dataArray.length} valid records`, 'success');
-        
         if (dataHistory.length === 0) {
             addConsoleLog('⚠️ No valid data after processing', 'warning');
-            document.getElementById('dataTableBody').innerHTML = 
-                '<tr><td colspan="7" class="no-data">All records invalid</td></tr>';
+            showNoDataMessage('All records invalid');
             return;
         }
         
-        const latestData = dataHistory[0];
-        updateDashboardWithDataDirect(latestData, false);
-        addConsoleLog(`📊 Updated with latest: ${latestData.timestamp.toLocaleString()}`, 'success');
+        // Sort by timestamp DESC (newest first)
+        dataHistory.sort((a, b) => b.timestamp - a.timestamp);
         
-        totalPages = Math.ceil(dataHistory.length / itemsPerPage);
+        // Update dashboard dengan data terbaru
+        if (dataHistory.length > 0) {
+            const latestData = dataHistory[0];
+            updateDashboardWithDataDirect(latestData);
+            addConsoleLog(`📊 Updated with latest: ${new Date(latestData.timestamp).toLocaleString()}`, 'success');
+        }
         
+        // Reset to page 1 dan update table
+        currentPage = 1;
         updateDataTable();
         updatePaginationControls();
         
-        addConsoleLog(`📊 Summary:`, 'success');
-        addConsoleLog(`   • Total: ${dataHistory.length} records`, 'info');
-        addConsoleLog(`   • Pages: ${totalPages}`, 'info');
-        addConsoleLog(`   • Per page: ${itemsPerPage}`, 'info');
+        addConsoleLog(`📊 Summary: ${dataHistory.length} records in ${Math.ceil(dataHistory.length / itemsPerPage)} pages`, 'success');
         
     } catch (error) {
         console.error('❌ Fetch error:', error);
         addConsoleLog(`❌ Failed: ${error.message}`, 'error');
-        document.getElementById('dataTableBody').innerHTML = 
-            `<tr><td colspan="7" class="no-data">Error: ${error.message}</td></tr>`;
+        showNoDataMessage(`Error: ${error.message}`);
     }
 }
 
-// ===== ADD HISTORICAL DATA WITH VALIDATION =====
-function addHistoricalDataToTable(data) {
+function processHistoricalDataItem(item) {
+    // Support berbagai format timestamp
     let timestamp;
-    const ts = data.timestamp || data.Timestamp;
     
-    if (typeof ts === 'number') {
-        timestamp = new Date(ts);
-    } else if (typeof ts === 'string') {
-        timestamp = new Date(ts);
+    if (item.timestamp) {
+        if (typeof item.timestamp === 'number') {
+            timestamp = item.timestamp;
+        } else if (item.timestamp.UnixMilli) {
+            timestamp = item.timestamp.UnixMilli();
+        } else {
+            timestamp = new Date(item.timestamp).getTime();
+        }
     } else {
-        console.warn('Missing timestamp:', data);
         return false;
     }
     
-    if (isNaN(timestamp.getTime())) {
-        console.warn('Invalid date:', ts);
+    if (isNaN(timestamp) || timestamp === 0) {
         return false;
     }
     
-    const voltage = parseFloat(data.voltage || data.Voltage || 0);
-    const current = parseFloat(data.current || data.Current || 0);
-    const power = parseFloat(data.power || data.Power || 0);
-    const energy = parseFloat(data.energy || data.Energy || 0);
-    const frequency = parseFloat(data.frequency || data.Frequency || 50);
-    const pf = parseFloat(data.power_factor || data.PowerFactor || data.pf || 1);
+    const voltage = parseFloat(item.voltage || 0);
+    const current = parseFloat(item.current || 0);
+    const power = parseFloat(item.power || 0);
+    const energy = parseFloat(item.energy || 0);
+    const frequency = parseFloat(item.frequency || 50);
+    const pf = parseFloat(item.power_factor || 1);
     
-    if ((isNaN(voltage) || voltage === 0) && 
-        (isNaN(current) || current === 0) && 
-        (isNaN(power) || power === 0) && 
-        (isNaN(energy) || energy === 0)) {
+    // Skip if all values are zero
+    if (voltage === 0 && current === 0 && power === 0 && energy === 0) {
         return false;
     }
     
-    const historyItem = {
+    dataHistory.push({
         timestamp,
         voltage: isNaN(voltage) ? 0 : voltage,
         current: isNaN(current) ? 0 : current,
@@ -197,10 +202,113 @@ function addHistoricalDataToTable(data) {
         energy: isNaN(energy) ? 0 : energy,
         frequency: isNaN(frequency) ? 50 : frequency,
         pf: isNaN(pf) ? 1 : pf
-    };
+    });
     
-    dataHistory.push(historyItem);
     return true;
+}
+
+function showNoDataMessage(message) {
+    const tbody = document.getElementById('dataTableBody');
+    if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" class="no-data">${message}</td></tr>`;
+    }
+    document.getElementById('historyCount').textContent = '0';
+    document.getElementById('totalData').textContent = '0';
+    document.getElementById('totalDataTable').textContent = '0';
+}
+
+// ===== QUICK FILTER FUNCTIONS =====
+function applyQuickFilter(range) {
+    const now = new Date();
+    let startDate;
+    
+    switch(range) {
+        case '15m':
+            startDate = new Date(now.getTime() - 15 * 60 * 1000);
+            break;
+        case '30m':
+            startDate = new Date(now.getTime() - 30 * 60 * 1000);
+            break;
+        case '1h':
+            startDate = new Date(now.getTime() - 60 * 60 * 1000);
+            break;
+        case '3h':
+            startDate = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+            break;
+        case '6h':
+            startDate = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+            break;
+        case '12h':
+            startDate = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+            break;
+        case '24h':
+            startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            break;
+        case '7d':
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+        default:
+            startDate = new Date(now.getTime() - 60 * 60 * 1000);
+    }
+    
+    currentFilter.startDate = startDate;
+    currentFilter.endDate = now;
+    currentFilter.timeRange = range;
+    
+    // Update UI
+    const startInput = document.getElementById('filterStartDate');
+    const endInput = document.getElementById('filterEndDate');
+    
+    if (startInput) startInput.value = formatDateTimeLocal(startDate);
+    if (endInput) endInput.value = formatDateTimeLocal(now);
+    
+    // Highlight active button
+    document.querySelectorAll('.quick-filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+        if (btn.dataset.range === range) {
+            btn.classList.add('active');
+        }
+    });
+    
+    addConsoleLog(`📅 Quick filter: ${range}`, 'info');
+    fetchHistoricalDataWithFilter();
+}
+
+function applyCustomFilter() {
+    const startInput = document.getElementById('filterStartDate');
+    const endInput = document.getElementById('filterEndDate');
+    
+    if (!startInput || !endInput) {
+        addConsoleLog('⚠️ Filter inputs not found', 'warning');
+        return;
+    }
+    
+    const startDate = new Date(startInput.value);
+    const endDate = new Date(endInput.value);
+    
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        addConsoleLog('⚠️ Invalid date range', 'warning');
+        alert('Please select valid start and end dates');
+        return;
+    }
+    
+    if (startDate > endDate) {
+        addConsoleLog('⚠️ Start date must be before end date', 'warning');
+        alert('Start date must be before end date');
+        return;
+    }
+    
+    currentFilter.startDate = startDate;
+    currentFilter.endDate = endDate;
+    currentFilter.timeRange = 'custom';
+    
+    // Remove active class from quick filter buttons
+    document.querySelectorAll('.quick-filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    addConsoleLog(`📅 Custom filter applied`, 'info');
+    fetchHistoricalDataWithFilter();
 }
 
 // ===== WEBSOCKET =====
@@ -225,7 +333,6 @@ function initWebSocket() {
                 handleWebSocketData(data);
             } catch (error) {
                 console.error('❌ Parse error:', error);
-                addConsoleLog('❌ Parse error: ' + error.message, 'error');
             }
         };
         
@@ -241,10 +348,8 @@ function initWebSocket() {
             if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
                 reconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
-                addConsoleLog(`🔄 Reconnecting in ${delay/1000}s... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, 'info');
+                addConsoleLog(`🔄 Reconnecting in ${delay/1000}s...`, 'info');
                 setTimeout(initWebSocket, delay);
-            } else {
-                addConsoleLog('❌ Max reconnect attempts. Refresh page.', 'error');
             }
         };
         
@@ -271,37 +376,27 @@ function updateConnectionStatus(connected) {
     }
 }
 
-// ===== DATA HANDLING =====
 function handleWebSocketData(data) {
     if (data.type === 'connected') {
         addConsoleLog('✅ ' + data.message, 'success');
         return;
     }
     
-    if (Array.isArray(data)) {
-        data.forEach(item => updateDashboardWithData(item));
-    } else if (data.data && Array.isArray(data.data)) {
-        data.data.forEach(item => updateDashboardWithData(item));
-    } else if (data.device_id || data.DeviceID || data.voltage || data.Voltage) {
-        addConsoleLog('📊 Real-time data from MQTT', 'data');
-        updateDashboardWithData(data);
+    // Handle real-time data from MQTT
+    if (data.device_id || data.voltage) {
+        updateDashboardWithRealtimeData(data);
     }
-    
-    updateLastUpdateTime();
 }
 
-function updateDashboardWithData(data, addToHistory = true) {
-    const voltage = parseFloat(data.voltage || data.Voltage || 0);
-    const current = parseFloat(data.current || data.Current || 0);
-    const power = parseFloat(data.power || data.Power || 0);
-    const energy = parseFloat(data.energy || data.Energy || 0);
-    const frequency = parseFloat(data.frequency || data.Frequency || 50);
-    const pf = parseFloat(data.power_factor || data.PowerFactor || data.pf || 1);
+function updateDashboardWithRealtimeData(data) {
+    const voltage = parseFloat(data.voltage || 0);
+    const current = parseFloat(data.current || 0);
+    const power = parseFloat(data.power || 0);
+    const energy = parseFloat(data.energy || 0);
+    const frequency = parseFloat(data.frequency || 50);
+    const pf = parseFloat(data.power_factor || 1);
     
-    if (voltage === 0 && current === 0 && power === 0 && energy === 0) {
-        return;
-    }
-    
+    // Update stat cards
     updateStatCard('voltageValue', voltage, 2);
     updateStatCard('currentValue', current, 2);
     updateStatCard('powerValue', power, 2);
@@ -318,9 +413,13 @@ function updateDashboardWithData(data, addToHistory = true) {
     updateStatTime('frequencyTime', timeStr);
     updateStatTime('pfTime', timeStr);
     
-    if (addToHistory) {
+    // Add to history jika dalam range filter
+    const timestamp = data.timestamp || now.getTime();
+    if (timestamp >= currentFilter.startDate.getTime() && 
+        timestamp <= currentFilter.endDate.getTime()) {
+        
         const historyItem = {
-            timestamp: now,
+            timestamp,
             voltage,
             current,
             power,
@@ -330,20 +429,16 @@ function updateDashboardWithData(data, addToHistory = true) {
         };
         
         dataHistory.unshift(historyItem);
-        if (dataHistory.length > MAX_HISTORY) {
-            dataHistory = dataHistory.slice(0, MAX_HISTORY);
-        }
-        
-        totalPages = Math.ceil(dataHistory.length / itemsPerPage);
+        totalRecords++;
         
         updateDataTable();
         updatePaginationControls();
-        
-        addConsoleLog(
-            `📊 V:${voltage.toFixed(2)}V I:${current.toFixed(2)}A P:${power.toFixed(2)}W E:${energy.toFixed(3)}kWh`,
-            'data'
-        );
     }
+    
+    addConsoleLog(
+        `📊 V:${voltage.toFixed(2)}V I:${current.toFixed(2)}A P:${power.toFixed(2)}W`,
+        'data'
+    );
 }
 
 function updateDashboardWithDataDirect(historyItem) {
@@ -361,7 +456,7 @@ function updateDashboardWithDataDirect(historyItem) {
     updateStatCard('frequencyValue', frequency, 1);
     updateStatCard('pfValue', pf, 2);
     
-    const timeStr = historyItem.timestamp.toLocaleTimeString('id-ID');
+    const timeStr = new Date(historyItem.timestamp).toLocaleTimeString('id-ID');
     updateStatTime('voltageTime', timeStr);
     updateStatTime('currentTime', timeStr);
     updateStatTime('powerTime', timeStr);
@@ -396,6 +491,7 @@ function updateDataTable() {
         tbody.innerHTML = '<tr><td colspan="7" class="no-data">No data available</td></tr>';
         document.getElementById('historyCount').textContent = '0';
         document.getElementById('totalData').textContent = '0';
+        document.getElementById('totalDataTable').textContent = '0';
         return;
     }
     
@@ -403,9 +499,11 @@ function updateDataTable() {
     const endIndex = Math.min(startIndex + itemsPerPage, dataHistory.length);
     const pageData = dataHistory.slice(startIndex, endIndex);
     
-    tbody.innerHTML = pageData.map(item => `
+    tbody.innerHTML = pageData.map(item => {
+        const date = new Date(item.timestamp);
+        return `
         <tr>
-            <td>${item.timestamp.toLocaleString('id-ID')}</td>
+            <td>${date.toLocaleString('id-ID')}</td>
             <td>${item.voltage.toFixed(2)}</td>
             <td>${item.current.toFixed(2)}</td>
             <td>${item.power.toFixed(2)}</td>
@@ -413,10 +511,11 @@ function updateDataTable() {
             <td>${item.frequency.toFixed(1)}</td>
             <td>${item.pf.toFixed(2)}</td>
         </tr>
-    `).join('');
+    `}).join('');
     
     document.getElementById('historyCount').textContent = `${startIndex + 1}-${endIndex}`;
     document.getElementById('totalData').textContent = dataHistory.length;
+    document.getElementById('totalDataTable').textContent = dataHistory.length;
 }
 
 function updatePaginationControls() {
@@ -427,6 +526,8 @@ function updatePaginationControls() {
         paginationDiv.innerHTML = '';
         return;
     }
+    
+    const totalPages = Math.ceil(dataHistory.length / itemsPerPage);
     
     paginationDiv.innerHTML = `
         <div class="pagination">
@@ -443,32 +544,31 @@ function updatePaginationControls() {
                 <option value="50" ${itemsPerPage === 50 ? 'selected' : ''}>50</option>
                 <option value="100" ${itemsPerPage === 100 ? 'selected' : ''}>100</option>
                 <option value="500" ${itemsPerPage === 500 ? 'selected' : ''}>500</option>
-                <option value="1000" ${itemsPerPage === 1000 ? 'selected' : ''}>1000</option>
             </select>
         </div>
     `;
 }
 
 function goToPage(page) {
+    const totalPages = Math.ceil(dataHistory.length / itemsPerPage);
     if (page < 1 || page > totalPages) return;
     currentPage = page;
     updateDataTable();
     updatePaginationControls();
-    addConsoleLog(`📄 Page ${currentPage}`, 'info');
 }
 
 function changeItemsPerPage(value) {
     itemsPerPage = parseInt(value);
     currentPage = 1;
-    totalPages = Math.ceil(dataHistory.length / itemsPerPage);
     updateDataTable();
     updatePaginationControls();
-    addConsoleLog(`📊 Items per page: ${itemsPerPage}`, 'info');
 }
 
 // ===== CONSOLE =====
 function addConsoleLog(message, type = 'info') {
     const console = document.getElementById('console');
+    if (!console) return;
+    
     const line = document.createElement('div');
     line.className = `console-line ${type}`;
     
@@ -497,7 +597,6 @@ function toggleAutoScroll() {
     autoScroll = !autoScroll;
     const btn = document.getElementById('btnAutoScroll');
     btn.textContent = `📌 Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
-    addConsoleLog(`📌 Auto-scroll ${autoScroll ? 'enabled' : 'disabled'}`, 'info');
 }
 
 function exportConsoleData() {
@@ -538,7 +637,6 @@ function logout() {
     window.location.href = '/view/login.html';
 }
 
-// ===== CLEANUP =====
 window.addEventListener('beforeunload', () => {
     if (ws) {
         ws.close();

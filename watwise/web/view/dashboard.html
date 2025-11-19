@@ -6,7 +6,139 @@
     <title>Wattwise - Real-time Energy Monitor</title>
     <link rel="stylesheet" href="/css/dashboard.css">
     <style>
-        /* ===== SIDEBAR STYLES ===== */
+        /* Filter Section Styles */
+        .filter-section {
+            background: var(--white);
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-lg);
+            padding: 1.5rem 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .filter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-header h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--dark);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .quick-filters {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .quick-filter-btn {
+            padding: 0.5rem 1rem;
+            background: var(--gray-100);
+            color: var(--gray-700);
+            border: 2px solid var(--gray-200);
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .quick-filter-btn:hover {
+            background: var(--gray-200);
+            border-color: var(--gray-300);
+        }
+
+        .quick-filter-btn.active {
+            background: var(--primary);
+            color: var(--white);
+            border-color: var(--primary);
+        }
+
+        .custom-filter {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 1rem;
+            align-items: end;
+        }
+
+        .filter-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .filter-input-group label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+
+        .filter-input-group input {
+            padding: 0.625rem 1rem;
+            border: 2px solid var(--gray-300);
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            transition: all 0.3s;
+        }
+
+        .filter-input-group input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn-apply-filter {
+            padding: 0.625rem 1.5rem;
+            background: var(--primary);
+            color: var(--white);
+            border: none;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            height: fit-content;
+        }
+
+        .btn-apply-filter:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .filter-info {
+            padding: 0.75rem 1rem;
+            background: var(--gray-100);
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            color: var(--gray-600);
+            margin-top: 1rem;
+            border-left: 3px solid var(--info);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .custom-filter {
+                grid-template-columns: 1fr;
+            }
+
+            .quick-filters {
+                flex-direction: column;
+            }
+
+            .quick-filter-btn {
+                width: 100%;
+            }
+        }
+
+        /* Sidebar & existing styles continue... */
         .sidebar {
             position: fixed;
             top: 0;
@@ -93,15 +225,6 @@
             text-align: center;
         }
 
-        .sidebar-footer {
-            padding: 1rem 1.5rem;
-            border-top: 1px solid var(--gray-200);
-            font-size: 0.875rem;
-            color: var(--gray-500);
-            text-align: center;
-        }
-
-        /* ===== OVERLAY ===== */
         .sidebar-overlay {
             position: fixed;
             top: 0;
@@ -120,7 +243,6 @@
             opacity: 1;
         }
 
-        /* ===== HAMBURGER BUTTON ===== */
         .menu-toggle {
             background: none;
             border: none;
@@ -144,7 +266,6 @@
             gap: 1rem;
         }
 
-        /* ===== WEBCAM PAGE ===== */
         .page-content {
             display: none;
         }
@@ -183,117 +304,6 @@
             font-size: 1.25rem;
             font-weight: 500;
         }
-
-        /* Additional styles for pagination */
-        .pagination-container {
-            background: white;
-            padding: 1rem 2rem;
-            border-radius: 0 0 16px 16px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            border-top: 1px solid #e2e8f0;
-        }
-        
-        .pagination {
-            display: flex;
-            gap: 0.5rem;
-            align-items: center;
-        }
-        
-        .pagination button {
-            padding: 0.5rem 1rem;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transition: all 0.3s;
-        }
-        
-        .pagination button:hover:not(:disabled) {
-            background: #5568d3;
-            transform: translateY(-2px);
-        }
-        
-        .pagination button:disabled {
-            background: #cbd5e1;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .page-info {
-            padding: 0.5rem 1rem;
-            background: #f1f5f9;
-            border-radius: 6px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            color: #334155;
-        }
-        
-        .items-per-page {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .items-per-page label {
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: #475569;
-        }
-        
-        .items-per-page select {
-            padding: 0.5rem 1rem;
-            border: 2px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 0.875rem;
-            background: white;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-        
-        .items-per-page select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .sidebar {
-                width: 250px;
-                left: -250px;
-            }
-
-            .navbar-brand span {
-                font-size: 1.25rem;
-            }
-
-            .pagination-container {
-                flex-direction: column;
-                padding: 1rem;
-            }
-            
-            .pagination {
-                width: 100%;
-                justify-content: center;
-                flex-wrap: wrap;
-            }
-            
-            .pagination button {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.75rem;
-            }
-            
-            .items-per-page {
-                width: 100%;
-                justify-content: center;
-            }
-        }
     </style>
 </head>
 <body>
@@ -310,7 +320,7 @@
         <div class="sidebar-menu">
             <a class="menu-item active" onclick="showPage('dashboard')">
                 <span class="menu-icon">📊</span>
-                <span>listrik</span>
+                <span>Dashboard</span>
             </a>
             <a class="menu-item" onclick="showPage('webcam')">
                 <span class="menu-icon">📹</span>
@@ -370,6 +380,63 @@
                         <span class="mini-stat-label">Total Data</span>
                         <span class="mini-stat-value" id="totalData">0</span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Filter Section -->
+            <div class="filter-section">
+                <div class="filter-header">
+                    <h2>
+                        <span>🔍</span>
+                        <span>Filter Data</span>
+                    </h2>
+                </div>
+
+                <!-- Quick Filters -->
+                <div class="quick-filters">
+                    <button class="quick-filter-btn" data-range="15m" onclick="applyQuickFilter('15m')">
+                        Last 15 Minutes
+                    </button>
+                    <button class="quick-filter-btn" data-range="30m" onclick="applyQuickFilter('30m')">
+                        Last 30 Minutes
+                    </button>
+                    <button class="quick-filter-btn active" data-range="1h" onclick="applyQuickFilter('1h')">
+                        Last 1 Hour
+                    </button>
+                    <button class="quick-filter-btn" data-range="3h" onclick="applyQuickFilter('3h')">
+                        Last 3 Hours
+                    </button>
+                    <button class="quick-filter-btn" data-range="6h" onclick="applyQuickFilter('6h')">
+                        Last 6 Hours
+                    </button>
+                    <button class="quick-filter-btn" data-range="12h" onclick="applyQuickFilter('12h')">
+                        Last 12 Hours
+                    </button>
+                    <button class="quick-filter-btn" data-range="24h" onclick="applyQuickFilter('24h')">
+                        Last 24 Hours
+                    </button>
+                    <button class="quick-filter-btn" data-range="7d" onclick="applyQuickFilter('7d')">
+                        Last 7 Days
+                    </button>
+                </div>
+
+                <!-- Custom Date Range -->
+                <div class="custom-filter">
+                    <div class="filter-input-group">
+                        <label for="filterStartDate">Start Date & Time</label>
+                        <input type="datetime-local" id="filterStartDate">
+                    </div>
+                    <div class="filter-input-group">
+                        <label for="filterEndDate">End Date & Time</label>
+                        <input type="datetime-local" id="filterEndDate">
+                    </div>
+                    <button class="btn-apply-filter" onclick="applyCustomFilter()">
+                        Apply Filter
+                    </button>
+                </div>
+
+                <div class="filter-info">
+                    💡 <strong>Tip:</strong> Use quick filters for recent data or custom date range for specific periods. Data is limited to reduce server load.
                 </div>
             </div>
 
@@ -482,7 +549,7 @@
                 </div>
             </div>
 
-            <!-- Data Table Section with Pagination -->
+            <!-- Data Table Section -->
             <div class="table-section">
                 <div class="table-header">
                     <h2>📋 Complete Data History</h2>
@@ -505,15 +572,12 @@
                         </thead>
                         <tbody id="dataTableBody">
                             <tr>
-                                <td colspan="7" class="no-data">Loading data from IoTDB...</td>
+                                <td colspan="7" class="no-data">Loading filtered data from IoTDB...</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
-                <!-- Pagination Controls -->
-                <div class="pagination-container" id="paginationControls">
-                    <!-- Pagination will be dynamically inserted here -->
-                </div>
+                <div class="pagination-container" id="paginationControls"></div>
             </div>
         </div>
 
@@ -541,7 +605,6 @@
     <script src="/js/dashboard.js"></script>
     
     <script>
-        // ===== SIDEBAR FUNCTIONS =====
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
@@ -550,34 +613,27 @@
             overlay.classList.toggle('active');
         }
 
-        // ===== PAGE NAVIGATION =====
         function showPage(pageName) {
-            // Hide all pages
             document.querySelectorAll('.page-content').forEach(page => {
                 page.classList.remove('active');
             });
 
-            // Show selected page
             document.getElementById(pageName + 'Page').classList.add('active');
 
-            // Update active menu item
             document.querySelectorAll('.menu-item').forEach(item => {
                 item.classList.remove('active');
             });
             event.target.closest('.menu-item').classList.add('active');
 
-            // Close sidebar on mobile
             if (window.innerWidth <= 768) {
                 toggleSidebar();
             }
 
-            // Log page change
             if (typeof addConsoleLog === 'function') {
                 addConsoleLog(`📄 Navigated to ${pageName} page`, 'info');
             }
         }
 
-        // Close sidebar when clicking outside
         document.addEventListener('click', (e) => {
             const sidebar = document.getElementById('sidebar');
             const menuToggle = document.querySelector('.menu-toggle');
